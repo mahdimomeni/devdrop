@@ -1,0 +1,37 @@
+# Binaries & Compiled Executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+devdrop
+
+# Application Data & SQLite Database Files
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Temporary & Test Files
+test_drop.txt
+test_folder/
+*.log
+
+# Node dependencies & Caches
+node_modules/
+web/node_modules/
+.npm/
+.vite/
+.vite-temp/
+web/.vite/
+web/.vite-temp/
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
