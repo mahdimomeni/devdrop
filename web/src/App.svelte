@@ -9,6 +9,7 @@
     sendCodeMessage,
     uploadTransfer,
     updateDisplayName,
+    toggleMessageReaction,
     DevDropSocket
   } from './lib/api.js';
   import PeerList from './lib/PeerList.svelte';
@@ -223,6 +224,61 @@
     }
   }
 
+  async function handleToggleReaction(messageId, emoji) {
+    const currentMsg = messages.find((m) => m.id === messageId);
+    const prevReactions = currentMsg?.reactions ? JSON.parse(JSON.stringify(currentMsg.reactions)) : [];
+
+    const myId = userId;
+    const myName = currentUser?.display_name || 'You';
+
+    const nextReactions = [...prevReactions];
+    const groupIdx = nextReactions.findIndex((g) => g.emoji === emoji);
+
+    if (groupIdx >= 0) {
+      const grp = { ...nextReactions[groupIdx] };
+      const userIdx = (grp.user_ids || []).indexOf(myId);
+      if (userIdx >= 0) {
+        grp.user_ids = grp.user_ids.filter((id) => id !== myId);
+        grp.user_names = (grp.user_names || []).filter((_, i) => i !== userIdx);
+        grp.count = Math.max(0, grp.count - 1);
+        if (grp.count <= 0) {
+          nextReactions.splice(groupIdx, 1);
+        } else {
+          nextReactions[groupIdx] = grp;
+        }
+      } else {
+        grp.user_ids = [...(grp.user_ids || []), myId];
+        grp.user_names = [...(grp.user_names || []), myName];
+        grp.count = (grp.count || 0) + 1;
+        nextReactions[groupIdx] = grp;
+      }
+    } else {
+      nextReactions.push({
+        emoji,
+        count: 1,
+        user_ids: [myId],
+        user_names: [myName],
+      });
+    }
+
+    messages = messages.map((m) => {
+      if (m.id === messageId) {
+        return { ...m, reactions: nextReactions };
+      }
+      return m;
+    });
+
+    try {
+      const res = await toggleMessageReaction(messageId, myId, emoji);
+      if (res?.reactions) {
+        messages = messages.map((m) => (m.id === messageId ? { ...m, reactions: res.reactions } : m));
+      }
+    } catch (err) {
+      messages = messages.map((m) => (m.id === messageId ? { ...m, reactions: prevReactions } : m));
+      showToast('Failed to react: ' + err.message, 'error');
+    }
+  }
+
   function handleWsEvent(event) {
     switch (event.type) {
       case 'ws_open':
@@ -347,6 +403,24 @@
               return {
                 ...m,
                 transfer: { ...m.transfer, is_expired: true },
+              };
+            }
+            return m;
+          });
+        }
+        break;
+
+      case 'reaction_updated':
+        if (event.payload?.message_id) {
+          const { message_id, reactions } = event.payload;
+          messages = messages.map((m) => {
+            if (m.id === message_id) {
+              return { ...m, reactions: reactions || [] };
+            }
+            if (m.reply_to && m.reply_to.id === message_id) {
+              return {
+                ...m,
+                reply_to: { ...m.reply_to, reactions: reactions || [] },
               };
             }
             return m;
@@ -575,6 +649,7 @@
         onSendMessage={handleSendMessage}
         onSendCode={handleSendCode}
         onUploadFiles={handleUploadFiles}
+        onToggleReaction={handleToggleReaction}
         onBackToPeers={() => (mobileActiveView = 'peers')}
         totalUnreadCount={totalUnreads}
         onSelectPeer={(id) => {

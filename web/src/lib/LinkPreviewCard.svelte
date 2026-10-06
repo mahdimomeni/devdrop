@@ -47,7 +47,7 @@
 
 {#if !isDismissed}
   {#if isLoading}
-    <!-- Telegram-style Loading Shimmer Skeleton -->
+    <!-- Loading Shimmer Skeleton -->
     <div
       class="mt-2 w-full rounded-xl p-2.5 sm:p-3 border text-left transition-all select-none animate-pulse {isMe
         ? 'bg-cyan-950/40 border-cyan-400/20 border-l-[3.5px] border-l-cyan-300'
@@ -64,7 +64,7 @@
       </div>
     </div>
   {:else if preview && (preview.title || preview.description || preview.image)}
-    <!-- Telegram-style Rich Link Preview Card -->
+    <!-- Rich Link Preview Card -->
     <a
       href={preview.url || url}
       target="_blank"
@@ -95,7 +95,7 @@
           <ExternalLink class="w-3 h-3 text-slate-400 opacity-60 group-hover/linkcard:opacity-100 group-hover/linkcard:translate-x-0.5 group-hover/linkcard:-translate-y-0.5 transition-all flex-shrink-0" />
         </div>
 
-        <!-- Optional Dismiss Preview button like Telegram -->
+        <!-- Optional Dismiss Preview button -->
         <button
           type="button"
           onclick={handleDismiss}

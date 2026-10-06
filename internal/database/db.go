@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,17 +44,25 @@ type Transfer struct {
 	IsExpired     bool      `json:"is_expired"`
 }
 
+type ReactionGroup struct {
+	Emoji     string   `json:"emoji"`
+	Count     int      `json:"count"`
+	UserIDs   []string `json:"user_ids"`
+	UserNames []string `json:"user_names"`
+}
+
 type Message struct {
-	ID         string       `json:"id"`
-	SenderID   string       `json:"sender_id"`
-	ReceiverID string       `json:"receiver_id"`
-	Type       string       `json:"type"` // 'text', 'code', 'file'
-	Body       string       `json:"body"`
-	ReplyToID  *string      `json:"reply_to_id,omitempty"`
-	ReplyTo    *Message     `json:"reply_to,omitempty"`
-	CreatedAt  time.Time    `json:"created_at"`
-	Snippet    *CodeSnippet `json:"snippet,omitempty"`
-	Transfer   *Transfer    `json:"transfer,omitempty"`
+	ID         string          `json:"id"`
+	SenderID   string          `json:"sender_id"`
+	ReceiverID string          `json:"receiver_id"`
+	Type       string          `json:"type"` // 'text', 'code', 'file'
+	Body       string          `json:"body"`
+	ReplyToID  *string         `json:"reply_to_id,omitempty"`
+	ReplyTo    *Message        `json:"reply_to,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+	Snippet    *CodeSnippet    `json:"snippet,omitempty"`
+	Transfer   *Transfer       `json:"transfer,omitempty"`
+	Reactions  []ReactionGroup `json:"reactions"`
 }
 
 func InitDB(dataDir string) (*DB, error) {
@@ -123,6 +132,18 @@ func InitDB(dataDir string) (*DB, error) {
 		FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
 	);
 
+	CREATE TABLE IF NOT EXISTS message_reactions (
+		message_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		emoji TEXT NOT NULL,
+		created_at DATETIME NOT NULL,
+		PRIMARY KEY (message_id, user_id, emoji),
+		FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_reactions_message ON message_reactions(message_id);
+
 	CREATE INDEX IF NOT EXISTS idx_messages_conversation 
 	ON messages(sender_id, receiver_id, created_at);
 	CREATE INDEX IF NOT EXISTS idx_messages_receiver 
@@ -137,6 +158,21 @@ func InitDB(dataDir string) (*DB, error) {
 
 	// Migrate messages table if upgrading from previous version without reply_to_id
 	_, _ = db.Exec("ALTER TABLE messages ADD COLUMN reply_to_id TEXT;")
+
+	// Migrate message_reactions table if upgrading
+	reactionsTableSchema := `
+	CREATE TABLE IF NOT EXISTS message_reactions (
+		message_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		emoji TEXT NOT NULL,
+		created_at DATETIME NOT NULL,
+		PRIMARY KEY (message_id, user_id, emoji),
+		FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_reactions_message ON message_reactions(message_id);
+	`
+	_, _ = db.Exec(reactionsTableSchema)
 
 	return &DB{db: db}, nil
 }
@@ -292,6 +328,8 @@ func (d *DB) getMessageByIDUnlocked(id string) (*Message, error) {
 			IsExpired:     isExpired,
 		}
 	}
+	m.Reactions = make([]ReactionGroup, 0)
+	_ = d.populateReactionsUnlocked([]*Message{&m})
 	return &m, nil
 }
 
@@ -317,6 +355,7 @@ func (d *DB) SaveTextMessage(id, senderID, receiverID, body string, replyToID *s
 		Body:       body,
 		ReplyToID:  replyToID,
 		CreatedAt:  createdAt,
+		Reactions:  make([]ReactionGroup, 0),
 	}
 
 	if replyToID != nil && *replyToID != "" {
@@ -364,6 +403,7 @@ func (d *DB) SaveCodeMessage(id, senderID, receiverID, body, language, codeConte
 		Body:       body,
 		ReplyToID:  replyToID,
 		CreatedAt:  createdAt,
+		Reactions:  make([]ReactionGroup, 0),
 		Snippet: &CodeSnippet{
 			MessageID:   id,
 			Language:    language,
@@ -425,6 +465,7 @@ func (d *DB) SaveTransferMessage(
 		Body:       body,
 		ReplyToID:  replyToID,
 		CreatedAt:  createdAt,
+		Reactions:  make([]ReactionGroup, 0),
 		Transfer: &Transfer{
 			MessageID:     id,
 			FileName:      fileName,
@@ -638,6 +679,12 @@ func (d *DB) GetMessages(userA, userB string, limit int, beforeID string) ([]Mes
 		messages[i], messages[j] = messages[j], messages[i]
 	}
 
+	msgPtrs := make([]*Message, len(messages))
+	for i := range messages {
+		msgPtrs[i] = &messages[i]
+	}
+	_ = d.populateReactionsUnlocked(msgPtrs)
+
 	return messages, hasMore, nil
 }
 
@@ -717,3 +764,188 @@ func (d *DB) GetExpiredTransfers(now time.Time) ([]Transfer, error) {
 	}
 	return expired, rows.Err()
 }
+
+func (d *DB) populateReactionsUnlocked(messages []*Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	msgMap := make(map[string][]*Message)
+	for _, m := range messages {
+		if m == nil {
+			continue
+		}
+		if m.Reactions == nil {
+			m.Reactions = make([]ReactionGroup, 0)
+		}
+		msgMap[m.ID] = append(msgMap[m.ID], m)
+		if m.ReplyTo != nil {
+			if m.ReplyTo.Reactions == nil {
+				m.ReplyTo.Reactions = make([]ReactionGroup, 0)
+			}
+			msgMap[m.ReplyTo.ID] = append(msgMap[m.ReplyTo.ID], m.ReplyTo)
+		}
+	}
+
+	if len(msgMap) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(msgMap))
+	for id := range msgMap {
+		ids = append(ids, id)
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT r.message_id, r.emoji, r.user_id, COALESCE(u.display_name, '')
+		FROM message_reactions r
+		LEFT JOIN users u ON r.user_id = u.id
+		WHERE r.message_id IN (%s)
+		ORDER BY r.created_at ASC;
+	`, strings.Join(placeholders, ","))
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type rawGroupMap struct {
+		emojiOrder []string
+		groups     map[string]*ReactionGroup
+	}
+	msgReactions := make(map[string]*rawGroupMap)
+
+	for rows.Next() {
+		var mID, emoji, uID, uName string
+		if err := rows.Scan(&mID, &emoji, &uID, &uName); err != nil {
+			return err
+		}
+		if uName == "" {
+			uName = uID
+		}
+
+		rgm, ok := msgReactions[mID]
+		if !ok {
+			rgm = &rawGroupMap{
+				emojiOrder: make([]string, 0),
+				groups:     make(map[string]*ReactionGroup),
+			}
+			msgReactions[mID] = rgm
+		}
+
+		grp, exists := rgm.groups[emoji]
+		if !exists {
+			rgm.emojiOrder = append(rgm.emojiOrder, emoji)
+			grp = &ReactionGroup{
+				Emoji:     emoji,
+				Count:     0,
+				UserIDs:   make([]string, 0),
+				UserNames: make([]string, 0),
+			}
+			rgm.groups[emoji] = grp
+		}
+		grp.Count++
+		grp.UserIDs = append(grp.UserIDs, uID)
+		grp.UserNames = append(grp.UserNames, uName)
+	}
+
+	for mID, rgm := range msgReactions {
+		reactionList := make([]ReactionGroup, 0, len(rgm.emojiOrder))
+		for _, e := range rgm.emojiOrder {
+			reactionList = append(reactionList, *rgm.groups[e])
+		}
+		for _, targetMsg := range msgMap[mID] {
+			targetMsg.Reactions = reactionList
+		}
+	}
+
+	return nil
+}
+
+func (d *DB) ToggleReaction(messageID, userID, emoji string) ([]ReactionGroup, bool, string, string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	var senderID, receiverID string
+	err := d.db.QueryRow("SELECT sender_id, receiver_id FROM messages WHERE id = ?", messageID).Scan(&senderID, &receiverID)
+	if err != nil {
+		return nil, false, "", "", err
+	}
+
+	var count int
+	err = d.db.QueryRow("SELECT COUNT(*) FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?", messageID, userID, emoji).Scan(&count)
+	if err != nil {
+		return nil, false, "", "", err
+	}
+
+	added := false
+	if count > 0 {
+		_, err = d.db.Exec("DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?", messageID, userID, emoji)
+		if err != nil {
+			return nil, false, "", "", err
+		}
+	} else {
+		now := time.Now().UTC()
+		_, err = d.db.Exec("INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)", messageID, userID, emoji, now)
+		if err != nil {
+			return nil, false, "", "", err
+		}
+		added = true
+	}
+
+	query := `
+		SELECT r.emoji, r.user_id, COALESCE(u.display_name, '')
+		FROM message_reactions r
+		LEFT JOIN users u ON r.user_id = u.id
+		WHERE r.message_id = ?
+		ORDER BY r.created_at ASC;
+	`
+	rows, err := d.db.Query(query, messageID)
+	if err != nil {
+		return nil, added, senderID, receiverID, err
+	}
+	defer rows.Close()
+
+	var emojiOrder []string
+	groupsMap := make(map[string]*ReactionGroup)
+
+	for rows.Next() {
+		var em, uID, uName string
+		if err := rows.Scan(&em, &uID, &uName); err != nil {
+			return nil, added, senderID, receiverID, err
+		}
+		if uName == "" {
+			uName = uID
+		}
+		grp, exists := groupsMap[em]
+		if !exists {
+			emojiOrder = append(emojiOrder, em)
+			grp = &ReactionGroup{
+				Emoji:     em,
+				Count:     0,
+				UserIDs:   make([]string, 0),
+				UserNames: make([]string, 0),
+			}
+			groupsMap[em] = grp
+		}
+		grp.Count++
+		grp.UserIDs = append(grp.UserIDs, uID)
+		grp.UserNames = append(grp.UserNames, uName)
+	}
+
+	result := make([]ReactionGroup, 0, len(emojiOrder))
+	for _, em := range emojiOrder {
+		result = append(result, *groupsMap[em])
+	}
+
+	return result, added, senderID, receiverID, nil
+}
+

@@ -169,3 +169,123 @@ func TestGetMessagesPagination(t *testing.T) {
 	}
 }
 
+func TestReactionFunctionality(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "devdrop_reaction_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	db, err := InitDB(tempDir)
+	if err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+	defer db.Close()
+
+	// Create users
+	_, err = db.UpsertUser("user-alice", "127.0.0.1", "Alice")
+	if err != nil {
+		t.Fatalf("failed to upsert user alice: %v", err)
+	}
+	_, err = db.UpsertUser("user-bob", "127.0.0.1", "Bob")
+	if err != nil {
+		t.Fatalf("failed to upsert user bob: %v", err)
+	}
+
+	// Create message
+	now := time.Now().UTC()
+	msg, err := db.SaveTextMessage("msg-react-1", "user-alice", "broadcast", "Welcome to LAN!", nil, now)
+	if err != nil {
+		t.Fatalf("failed to save message: %v", err)
+	}
+	if len(msg.Reactions) != 0 {
+		t.Errorf("expected 0 initial reactions, got %d", len(msg.Reactions))
+	}
+
+	// Alice adds reaction 👍
+	groups, added, senderID, receiverID, err := db.ToggleReaction("msg-react-1", "user-alice", "👍")
+	if err != nil {
+		t.Fatalf("failed to toggle reaction: %v", err)
+	}
+	if !added {
+		t.Errorf("expected added=true, got false")
+	}
+	if senderID != "user-alice" || receiverID != "broadcast" {
+		t.Errorf("expected sender=user-alice, receiver=broadcast, got %s, %s", senderID, receiverID)
+	}
+	if len(groups) != 1 || groups[0].Emoji != "👍" || groups[0].Count != 1 {
+		t.Fatalf("expected 1 reaction group with count 1, got %+v", groups)
+	}
+	if len(groups[0].UserNames) != 1 || groups[0].UserNames[0] != "Alice" {
+		t.Errorf("expected user name Alice, got %+v", groups[0].UserNames)
+	}
+
+	// Bob also reacts with 👍
+	groups, added, _, _, err = db.ToggleReaction("msg-react-1", "user-bob", "👍")
+	if err != nil {
+		t.Fatalf("failed to toggle bob reaction: %v", err)
+	}
+	if !added {
+		t.Errorf("expected added=true for Bob")
+	}
+	if len(groups) != 1 || groups[0].Count != 2 {
+		t.Fatalf("expected count=2 for 👍, got %+v", groups)
+	}
+
+	// Bob reacts with 🔥
+	groups, added, _, _, err = db.ToggleReaction("msg-react-1", "user-bob", "🔥")
+	if err != nil {
+		t.Fatalf("failed to toggle bob fire reaction: %v", err)
+	}
+	if !added {
+		t.Errorf("expected added=true for Bob 🔥")
+	}
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 reaction groups, got %d", len(groups))
+	}
+
+	// Verify GetMessages loads these reactions
+	msgs, _, err := db.GetMessages("user-alice", "broadcast", 10, "")
+	if err != nil {
+		t.Fatalf("failed to get messages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if len(msgs[0].Reactions) != 2 {
+		t.Fatalf("expected 2 reactions in retrieved message, got %d", len(msgs[0].Reactions))
+	}
+
+	// Alice toggles 👍 off
+	groups, added, _, _, err = db.ToggleReaction("msg-react-1", "user-alice", "👍")
+	if err != nil {
+		t.Fatalf("failed to toggle alice reaction off: %v", err)
+	}
+	if added {
+		t.Errorf("expected added=false on toggle off, got true")
+	}
+	// 👍 should now have count 1 (Bob only)
+	var thumbsGroup *ReactionGroup
+	for i := range groups {
+		if groups[i].Emoji == "👍" {
+			thumbsGroup = &groups[i]
+		}
+	}
+	if thumbsGroup == nil || thumbsGroup.Count != 1 {
+		t.Fatalf("expected 👍 count=1, got %+v", thumbsGroup)
+	}
+
+	// Bob toggles 👍 off -> group should disappear
+	groups, added, _, _, err = db.ToggleReaction("msg-react-1", "user-bob", "👍")
+	if err != nil {
+		t.Fatalf("failed to toggle bob reaction off: %v", err)
+	}
+	if added {
+		t.Errorf("expected added=false")
+	}
+	if len(groups) != 1 || groups[0].Emoji != "🔥" {
+		t.Fatalf("expected only 🔥 reaction left, got %+v", groups)
+	}
+}
+
+

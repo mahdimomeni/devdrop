@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,6 +47,7 @@ func (s *ServerHandler) RegisterRoutes(r chi.Router) {
 		// Messaging & History
 		api.Get("/messages", s.handleGetMessages)
 		api.Post("/messages", s.handleSendMessage)
+		api.Post("/messages/{id}/reactions", s.handleToggleReaction)
 
 		// Link Preview
 		api.Get("/preview", s.handleGetLinkPreview)
@@ -279,5 +282,64 @@ func (s *ServerHandler) handleGetLinkPreview(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(previewData)
+}
+
+func (s *ServerHandler) handleToggleReaction(w http.ResponseWriter, r *http.Request) {
+	messageID := chi.URLParam(r, "id")
+	if messageID == "" {
+		http.Error(w, "missing message ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		UserID string `json:"user_id"`
+		Emoji  string `json:"emoji"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Emoji = strings.TrimSpace(req.Emoji)
+
+	if req.UserID == "" || req.Emoji == "" {
+		http.Error(w, "user_id and emoji are required", http.StatusBadRequest)
+		return
+	}
+
+	reactions, added, senderID, receiverID, err := s.db.ToggleReaction(messageID, req.UserID, req.Emoji)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "message not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update reaction", http.StatusInternalServerError)
+		return
+	}
+
+	action := "removed"
+	if added {
+		action = "added"
+	}
+
+	// Broadcast via WebSocket
+	s.hub.BroadcastReaction(hub.ReactionEventPayload{
+		MessageID:  messageID,
+		SenderID:   senderID,
+		ReceiverID: receiverID,
+		UserID:     req.UserID,
+		Emoji:      req.Emoji,
+		Action:     action,
+		Reactions:  reactions,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":   true,
+		"action":    action,
+		"reactions": reactions,
+	})
 }
 

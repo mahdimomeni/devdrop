@@ -260,3 +260,93 @@ func TestLinkPreviewEndpoint(t *testing.T) {
 	}
 }
 
+func TestToggleReactionHandler(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "devdrop_handler_reaction_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	db, err := database.InitDB(tempDir)
+	if err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+	defer db.Close()
+
+	wsHub := hub.NewHub(db)
+	uploadDir := filepath.Join(tempDir, "uploads")
+	tm, err := transfer.NewManager(uploadDir, db, wsHub)
+	if err != nil {
+		t.Fatalf("failed to init tm: %v", err)
+	}
+
+	h := NewServerHandler(db, wsHub, tm)
+	r := chi.NewRouter()
+	h.RegisterRoutes(r)
+
+	// Create user & message
+	_, _ = db.UpsertUser("user-1", "127.0.0.1", "DevOne")
+	origMsg, err := db.SaveTextMessage("msg-100", "user-1", "broadcast", "Test Reactions", nil, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("failed to save msg: %v", err)
+	}
+
+	// 1. Post reaction
+	reqBody := map[string]string{
+		"user_id": "user-1",
+		"emoji":   "🎉",
+	}
+	b, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/messages/"+origMsg.ID+"/reactions", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var res struct {
+		Success   bool                     `json:"success"`
+		Action    string                   `json:"action"`
+		Reactions []database.ReactionGroup `json:"reactions"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !res.Success || res.Action != "added" {
+		t.Errorf("expected success=true and action='added', got %+v", res)
+	}
+	if len(res.Reactions) != 1 || res.Reactions[0].Emoji != "🎉" || res.Reactions[0].Count != 1 {
+		t.Errorf("expected reaction 🎉 with count 1, got %+v", res.Reactions)
+	}
+
+	// 2. Post again to toggle off
+	req2 := httptest.NewRequest(http.MethodPost, "/api/messages/"+origMsg.ID+"/reactions", bytes.NewReader(b))
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	var res2 struct {
+		Success   bool                     `json:"success"`
+		Action    string                   `json:"action"`
+		Reactions []database.ReactionGroup `json:"reactions"`
+	}
+	if err := json.NewDecoder(rec2.Body).Decode(&res2); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !res2.Success || res2.Action != "removed" {
+		t.Errorf("expected success=true and action='removed', got %+v", res2)
+	}
+	if len(res2.Reactions) != 0 {
+		t.Errorf("expected 0 reactions after toggle off, got %+v", res2.Reactions)
+	}
+}
+
+

@@ -28,15 +28,22 @@
     AtSign,
     Bell,
     BellRing,
-    BellOff
+    BellOff,
+    Smile,
+    SmilePlus
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
   import CodeEditor from './CodeEditor.svelte';
   import DiffModal from './DiffModal.svelte';
   import LinkPreviewCard from './LinkPreviewCard.svelte';
+  import EmojiPicker from './EmojiPicker.svelte';
   import { highlightCodeLines, normalizeLang, renderMarkdown } from './syntaxHighlight.js';
   import { extractFirstUrl } from './linkUtils.js';
+  import {
+    QUICK_REACTIONS,
+    getEmojiOnlyInfo
+  } from './emojiData.js';
   import {
     parseMessageSegments,
     isUserMentioned,
@@ -58,6 +65,7 @@
     onSendMessage,
     onSendCode,
     onUploadFiles,
+    onToggleReaction = null,
     onBackToPeers = null,
     totalUnreadCount = 0,
     onSelectPeer = null,
@@ -108,6 +116,51 @@
 
   // Expanded messages tracking: all long messages and code are collapsed by default!
   let expandedMessageIds = $state(new Set());
+
+  // Emoji Picker & Reactions state
+  let isInputEmojiPickerOpen = $state(false);
+  let activeReactionPickerMsgId = $state(null);
+  let recentlyReactedAnim = $state({});
+
+  function toggleReactionPicker(msgId) {
+    if (activeReactionPickerMsgId === msgId) {
+      activeReactionPickerMsgId = null;
+    } else {
+      activeReactionPickerMsgId = msgId;
+    }
+  }
+
+  function handleToggleReaction(msgId, emoji) {
+    const key = `${msgId}_${emoji}`;
+    recentlyReactedAnim = { ...recentlyReactedAnim, [key]: true };
+    setTimeout(() => {
+      const next = { ...recentlyReactedAnim };
+      delete next[key];
+      recentlyReactedAnim = next;
+    }, 400);
+
+    onToggleReaction?.(msgId, emoji);
+    activeReactionPickerMsgId = null;
+  }
+
+  function handleInsertEmoji(emoji) {
+    if (!textareaElement) {
+      textInput += emoji;
+      return;
+    }
+    const start = textareaElement.selectionStart ?? textInput.length;
+    const end = textareaElement.selectionEnd ?? textInput.length;
+    const before = textInput.slice(0, start);
+    const after = textInput.slice(end);
+    textInput = before + emoji + after;
+    tick().then(() => {
+      if (textareaElement) {
+        const nextPos = start + emoji.length;
+        textareaElement.focus();
+        textareaElement.setSelectionRange(nextPos, nextPos);
+      }
+    });
+  }
 
   function toggleExpand(msgId) {
     const next = new Set(expandedMessageIds);
@@ -451,6 +504,12 @@
   function handleWindowPointerDown(e) {
     if (mentionMenuOpen && !e.target?.closest?.('[role="listbox"]') && e.target !== textareaElement) {
       mentionMenuOpen = false;
+    }
+    if (isInputEmojiPickerOpen && !e.target?.closest?.('[aria-label="Send Emoji"]') && !e.target?.closest?.('#input-emoji-btn')) {
+      isInputEmojiPickerOpen = false;
+    }
+    if (activeReactionPickerMsgId && !e.target?.closest?.('[aria-label="Reaction Picker"]') && !e.target?.closest?.('.reaction-trigger-btn')) {
+      activeReactionPickerMsgId = null;
     }
   }
 
@@ -1003,7 +1062,61 @@
                 <span>Mention</span>
               </button>
             {/if}
+
+            <!-- Quick React trigger button -->
+            <button
+              onclick={() => toggleReactionPicker(msg.id)}
+              class="reaction-trigger-btn opacity-75 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity ml-0.5 flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 px-1.5 py-0.5 rounded cursor-pointer"
+              title="React with emoji"
+            >
+              <SmilePlus class="w-3 h-3 text-cyan-400" />
+              <span>React</span>
+            </button>
           </div>
+
+          <!-- Floating Quick-Reaction Bar (reveals on hover) -->
+          <div class="opacity-0 group-hover:opacity-100 transition-all duration-150 mb-1 flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-slate-950/95 backdrop-blur-md border border-slate-750/90 shadow-2xl z-20 animate-reaction-bar pointer-events-none group-hover:pointer-events-auto">
+            {#each QUICK_REACTIONS.slice(0, 8) as em}
+              <button
+                type="button"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  handleToggleReaction(msg.id, em);
+                }}
+                class="text-base sm:text-lg hover:scale-135 active:scale-95 transition-transform duration-100 px-1 py-0.5 flex items-center justify-center cursor-pointer select-none"
+                title="React with {em}"
+              >
+                <span>{em}</span>
+              </button>
+            {/each}
+            <button
+              type="button"
+              onclick={(e) => {
+                e.stopPropagation();
+                toggleReactionPicker(msg.id);
+              }}
+              class="w-6 h-6 ml-0.5 rounded-full bg-slate-800/90 hover:bg-slate-750 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition-all cursor-pointer active:scale-95"
+              title="More emoji reactions"
+            >
+              <SmilePlus class="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <!-- Full Emoji Reaction Picker Popover (if open for this message) -->
+          {#if activeReactionPickerMsgId === msg.id}
+            <div
+              class="relative z-40 my-1.5 animate-in fade-in zoom-in-95 duration-150"
+              role="region"
+              aria-label="Reaction Picker"
+            >
+              <EmojiPicker
+                mode="reaction"
+                title="React to message"
+                onSelect={(em) => handleToggleReaction(msg.id, em)}
+                onClose={() => (activeReactionPickerMsgId = null)}
+              />
+            </div>
+          {/if}
 
           <!-- Quoted Reply Card (if replying to another message) -->
           {#if targetReply}
@@ -1036,13 +1149,22 @@
 
           <!-- Message Body by Type -->
           {#if msg.type === 'text'}
-            {@const textPreview = getTextPreview(msg.body, isExpanded(msg.id))}
-            {@const firstUrl = extractFirstUrl(msg.body)}
-            <div
-              class="relative max-w-[88%] sm:max-w-xl md:max-w-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
-                ? 'bg-cyan-600 text-white rounded-br-xs'
-                : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-xs'}"
-            >
+            {@const emojiOnly = getEmojiOnlyInfo(msg.body)}
+            {#if emojiOnly.isEmojiOnly}
+              <!-- Big Emoji Rendering for 1-3 emojis -->
+              <div class="relative py-1 px-1.5 select-text {isMe ? 'text-right' : 'text-left'}">
+                <span class="big-emoji-display cursor-default" title={msg.body}>
+                  {msg.body.trim()}
+                </span>
+              </div>
+            {:else}
+              {@const textPreview = getTextPreview(msg.body, isExpanded(msg.id))}
+              {@const firstUrl = extractFirstUrl(msg.body)}
+              <div
+                class="relative max-w-[88%] sm:max-w-xl md:max-w-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
+                  ? 'bg-cyan-600 text-white rounded-br-xs'
+                  : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-xs'}"
+              >
               <div class="{!isExpanded(msg.id) && textPreview.isLong ? 'max-h-52 overflow-hidden relative' : ''} {isExpanded(msg.id) && textPreview.totalLength > 1500 ? 'max-h-[500px] overflow-y-auto pr-1' : ''}">
                 {#each parseMessageSegments(textPreview.displayText, peers, currentUser) as segment}
                   {#if segment.type === 'link'}
@@ -1132,6 +1254,7 @@
                 </div>
               {/if}
             </div>
+          {/if}
 
           {:else if msg.type === 'code' && msg.snippet}
             {@const isMarkdown = normalizeLang(msg.snippet.language) === 'markdown'}
@@ -1339,12 +1462,43 @@
               <FileCard transfer={msg.transfer} isOutgoing={isMe} />
             </div>
           {/if}
+
+          <!-- Reaction Badges Under Message -->
+          {#if msg.reactions && msg.reactions.length > 0}
+            <div class="flex flex-wrap items-center gap-1.5 mt-1.5 px-0.5 {isMe ? 'justify-end' : 'justify-start'}">
+              {#each msg.reactions as grp (grp.emoji)}
+                {@const hasMyReaction = grp.user_ids && grp.user_ids.includes(currentUser?.id)}
+                {@const animKey = `${msg.id}_${grp.emoji}`}
+                <button
+                  type="button"
+                  onclick={() => handleToggleReaction(msg.id, grp.emoji)}
+                  class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono transition-all duration-150 cursor-pointer select-none active:scale-95 shadow-sm {hasMyReaction
+                    ? 'bg-cyan-500/25 hover:bg-cyan-500/35 border border-cyan-400/60 text-cyan-200 ring-1 ring-cyan-500/40 shadow-xs shadow-cyan-500/20 font-semibold'
+                    : 'bg-slate-900/90 hover:bg-slate-800/90 border border-slate-750 text-slate-300 font-medium hover:border-slate-600'} {recentlyReactedAnim[animKey] ? 'animate-reaction-pop' : ''}"
+                  title="{grp.user_names?.length ? grp.user_names.join(', ') : `${grp.count} reaction`}"
+                >
+                  <span class="text-sm leading-none">{grp.emoji}</span>
+                  <span class="text-[11px] font-bold">{grp.count}</span>
+                </button>
+              {/each}
+
+              <!-- Add Reaction Mini Button (+) -->
+              <button
+                type="button"
+                onclick={() => toggleReactionPicker(msg.id)}
+                class="reaction-trigger-btn inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-cyan-300 border border-slate-750 hover:border-cyan-500/50 transition-all cursor-pointer active:scale-95 shadow-sm"
+                title="Add reaction"
+              >
+                <SmilePlus class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          {/if}
         </div>
       {/each}
     {/if}
   </div>
 
-  <!-- Floating Scroll To Bottom Button (Telegram style) -->
+  <!-- Floating Scroll To Bottom Button -->
   {#if !isNearBottom && messages.length > 0}
     <button
       type="button"
@@ -1492,6 +1646,22 @@
         </div>
       {/if}
 
+      <!-- Input Emoji Picker Popover -->
+      {#if isInputEmojiPickerOpen}
+        <div
+          class="absolute bottom-full left-0 sm:left-2 mb-2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
+          role="region"
+          aria-label="Send Emoji"
+        >
+          <EmojiPicker
+            onSelect={handleInsertEmoji}
+            onClose={() => (isInputEmojiPickerOpen = false)}
+            title="Send Emoji"
+            mode="input"
+          />
+        </div>
+      {/if}
+
       <!-- Textarea -->
       <textarea
         bind:this={textareaElement}
@@ -1519,6 +1689,20 @@
           >
             <Code class="w-3.5 h-3.5 text-cyan-400" />
             <span class="hidden sm:inline">Add Code</span>
+          </button>
+
+          <!-- Emoji Picker Button -->
+          <button
+            type="button"
+            id="input-emoji-btn"
+            onclick={() => (isInputEmojiPickerOpen = !isInputEmojiPickerOpen)}
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer flex-shrink-0 {isInputEmojiPickerOpen
+              ? 'bg-cyan-950 text-cyan-300 border border-cyan-800 shadow-xs'
+              : 'text-slate-300 hover:text-cyan-300 hover:bg-slate-800 border border-slate-750'}"
+            title="Insert Emoji (😄)"
+          >
+            <Smile class="w-3.5 h-3.5 text-cyan-400" />
+            <span class="hidden sm:inline">Emoji</span>
           </button>
 
           <!-- Mention Button -->

@@ -186,6 +186,19 @@ export async function sendCodeMessage(senderId, receiverId, body, language, code
   return res.json();
 }
 
+export async function toggleMessageReaction(messageId, userId, emoji) {
+  const res = await fetch(`/api/messages/${encodeURIComponent(messageId)}/reactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, emoji }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => 'Failed to toggle reaction');
+    throw new Error(errText || 'Failed to toggle reaction');
+  }
+  return res.json();
+}
+
 // Client-side cache for link previews to prevent redundant requests
 const linkPreviewCache = new Map();
 const pendingPreviewRequests = new Map();

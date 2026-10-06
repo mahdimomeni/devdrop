@@ -260,6 +260,52 @@ func (h *Hub) BroadcastFileExpired(messageID string) {
 	h.broadcast <- data
 }
 
+type ReactionEventPayload struct {
+	MessageID  string                   `json:"message_id"`
+	SenderID   string                   `json:"sender_id"`
+	ReceiverID string                   `json:"receiver_id"`
+	UserID     string                   `json:"user_id"`
+	Emoji      string                   `json:"emoji"`
+	Action     string                   `json:"action"` // "added" or "removed"
+	Reactions  []database.ReactionGroup `json:"reactions"`
+}
+
+func (h *Hub) BroadcastReaction(payload ReactionEventPayload) {
+	data, err := json.Marshal(map[string]any{
+		"type":    "reaction_updated",
+		"payload": payload,
+	})
+	if err != nil {
+		log.Printf("Error encoding reaction: %v", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// If receiver is "all" or "broadcast" or empty, send to all clients
+	if payload.ReceiverID == "all" || payload.ReceiverID == "broadcast" || payload.ReceiverID == "" {
+		for client := range h.clients {
+			select {
+			case client.send <- data:
+			default:
+			}
+		}
+		return
+	}
+
+	// 1-to-1: send to sender and receiver
+	for client := range h.clients {
+		if client.userID == payload.SenderID || client.userID == payload.ReceiverID {
+			select {
+			case client.send <- data:
+			default:
+			}
+		}
+	}
+}
+
+
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
