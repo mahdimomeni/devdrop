@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 # dist is tracked so Go embed.FS builds cleanly on fresh clone
 dist-ssr
+dist/
 *.local
 
 # Editor directories and files

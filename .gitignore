@@ -5,6 +5,7 @@
 *.so
 *.dylib
 devdrop
+web/dist/
 
 # Application Data & SQLite Database Files
 data/
