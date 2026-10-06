@@ -122,13 +122,25 @@
   // Emoji Picker & Reactions state
   let isInputEmojiPickerOpen = $state(false);
   let activeReactionPickerMsgId = $state(null);
+  let activeQuickReactionMsgId = $state(null);
   let recentlyReactedAnim = $state({});
+
+  function toggleQuickReaction(msgId) {
+    if (activeQuickReactionMsgId === msgId || activeReactionPickerMsgId === msgId) {
+      activeQuickReactionMsgId = null;
+      activeReactionPickerMsgId = null;
+    } else {
+      activeQuickReactionMsgId = msgId;
+      activeReactionPickerMsgId = null;
+    }
+  }
 
   function toggleReactionPicker(msgId) {
     if (activeReactionPickerMsgId === msgId) {
       activeReactionPickerMsgId = null;
     } else {
       activeReactionPickerMsgId = msgId;
+      activeQuickReactionMsgId = null;
     }
   }
 
@@ -143,6 +155,7 @@
 
     onToggleReaction?.(msgId, emoji);
     activeReactionPickerMsgId = null;
+    activeQuickReactionMsgId = null;
   }
 
   function handleInsertEmoji(emoji) {
@@ -513,6 +526,20 @@
     if (activeReactionPickerMsgId && !e.target?.closest?.('[aria-label="Reaction Picker"]') && !e.target?.closest?.('.reaction-trigger-btn')) {
       activeReactionPickerMsgId = null;
     }
+    if (activeQuickReactionMsgId && !e.target?.closest?.('.quick-reaction-bar') && !e.target?.closest?.('.reaction-trigger-btn')) {
+      activeQuickReactionMsgId = null;
+    }
+  }
+
+  function handleWindowKeyDown(e) {
+    if (e.key === 'Escape') {
+      if (activeReactionPickerMsgId) {
+        activeReactionPickerMsgId = null;
+      }
+      if (activeQuickReactionMsgId) {
+        activeQuickReactionMsgId = null;
+      }
+    }
   }
 
   function handleKeyDown(e) {
@@ -796,7 +823,7 @@
   let isBroadcast = $derived(selectedPeer === 'broadcast' || !selectedPeer);
 </script>
 
-<svelte:window onpointerdown={handleWindowPointerDown} />
+<svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeyDown} />
 
 <div
   role="region"
@@ -1080,42 +1107,60 @@
 
             <!-- Quick React trigger button -->
             <button
-              onclick={() => toggleReactionPicker(msg.id)}
-              class="reaction-trigger-btn opacity-75 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity ml-0.5 flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 px-1.5 py-0.5 rounded cursor-pointer"
+              onclick={() => toggleQuickReaction(msg.id)}
+              class="reaction-trigger-btn {activeQuickReactionMsgId === msg.id || activeReactionPickerMsgId === msg.id ? 'opacity-100 text-cyan-300 bg-slate-800' : 'opacity-75 sm:opacity-0 sm:group-hover:opacity-100 text-slate-400 hover:text-cyan-300'} transition-opacity ml-0.5 flex items-center gap-1 text-[10px] hover:bg-slate-800/80 px-1.5 py-0.5 rounded cursor-pointer touch-manipulation active:scale-95"
               title="React with emoji"
             >
-              <SmilePlus class="w-3 h-3 text-cyan-400" />
-              <span>React</span>
+              <SmilePlus class="w-3.5 h-3.5 text-cyan-400 pointer-events-none" />
+              <span class="pointer-events-none">React</span>
             </button>
           </div>
 
-          <!-- Floating Quick-Reaction Bar (reveals on hover) -->
-          <div class="opacity-0 group-hover:opacity-100 transition-all duration-150 mb-1 flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-slate-950/95 backdrop-blur-md border border-slate-750/90 shadow-2xl z-20 animate-reaction-bar pointer-events-none group-hover:pointer-events-auto">
-            {#each QUICK_REACTIONS.slice(0, 8) as em}
+          <!-- Floating Quick-Reaction Bar (ONLY rendered when active!) -->
+          {#if activeQuickReactionMsgId === msg.id}
+            <div
+              class="quick-reaction-bar mb-1.5 flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-slate-950/95 backdrop-blur-md border border-slate-750/90 shadow-2xl z-30 animate-reaction-bar"
+              role="region"
+              aria-label="Quick Reactions"
+            >
+              {#each QUICK_REACTIONS.slice(0, 8) as em}
+                <button
+                  type="button"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    handleToggleReaction(msg.id, em);
+                  }}
+                  class="text-base sm:text-lg sm:hover:scale-135 active:scale-90 transition-transform duration-100 px-1.5 py-1 sm:px-1 sm:py-0.5 flex items-center justify-center cursor-pointer select-none touch-manipulation min-w-[32px] min-h-[32px]"
+                  title="React with {em}"
+                >
+                  <span class="pointer-events-none select-none">{em}</span>
+                </button>
+              {/each}
               <button
                 type="button"
                 onclick={(e) => {
                   e.stopPropagation();
-                  handleToggleReaction(msg.id, em);
+                  toggleReactionPicker(msg.id);
                 }}
-                class="text-base sm:text-lg hover:scale-135 active:scale-95 transition-transform duration-100 px-1 py-0.5 flex items-center justify-center cursor-pointer select-none"
-                title="React with {em}"
+                class="reaction-trigger-btn w-7 h-7 sm:w-6 sm:h-6 ml-0.5 rounded-full bg-slate-800/90 hover:bg-slate-750 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition-all cursor-pointer active:scale-90 touch-manipulation"
+                title="More emoji reactions"
               >
-                <span>{em}</span>
+                <SmilePlus class="w-3.5 h-3.5 pointer-events-none" />
               </button>
-            {/each}
-            <button
-              type="button"
-              onclick={(e) => {
-                e.stopPropagation();
-                toggleReactionPicker(msg.id);
-              }}
-              class="w-6 h-6 ml-0.5 rounded-full bg-slate-800/90 hover:bg-slate-750 text-slate-300 hover:text-cyan-300 flex items-center justify-center transition-all cursor-pointer active:scale-95"
-              title="More emoji reactions"
-            >
-              <SmilePlus class="w-3.5 h-3.5" />
-            </button>
-          </div>
+              <button
+                type="button"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  activeQuickReactionMsgId = null;
+                }}
+                class="w-6 h-6 ml-0.5 rounded-full hover:bg-slate-800 text-slate-400 hover:text-slate-200 flex items-center justify-center transition-colors cursor-pointer"
+                title="Close reactions"
+                aria-label="Close reactions"
+              >
+                <X class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+          {/if}
 
           <!-- Full Emoji Reaction Picker Popover (if open for this message) -->
           {#if activeReactionPickerMsgId === msg.id}
@@ -1487,24 +1532,24 @@
                 <button
                   type="button"
                   onclick={() => handleToggleReaction(msg.id, grp.emoji)}
-                  class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono transition-all duration-150 cursor-pointer select-none active:scale-95 shadow-sm {hasMyReaction
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1 sm:py-0.5 rounded-full text-xs font-mono transition-all duration-150 cursor-pointer select-none active:scale-90 shadow-sm touch-manipulation min-h-[28px] {hasMyReaction
                     ? 'bg-cyan-500/25 hover:bg-cyan-500/35 border border-cyan-400/60 text-cyan-200 ring-1 ring-cyan-500/40 shadow-xs shadow-cyan-500/20 font-semibold'
                     : 'bg-slate-900/90 hover:bg-slate-800/90 border border-slate-750 text-slate-300 font-medium hover:border-slate-600'} {recentlyReactedAnim[animKey] ? 'animate-reaction-pop' : ''}"
                   title="{grp.user_names?.length ? grp.user_names.join(', ') : `${grp.count} reaction`}"
                 >
-                  <span class="text-sm leading-none">{grp.emoji}</span>
-                  <span class="text-[11px] font-bold">{grp.count}</span>
+                  <span class="text-sm leading-none pointer-events-none select-none">{grp.emoji}</span>
+                  <span class="text-[11px] font-bold pointer-events-none select-none">{grp.count}</span>
                 </button>
               {/each}
 
               <!-- Add Reaction Mini Button (+) -->
               <button
                 type="button"
-                onclick={() => toggleReactionPicker(msg.id)}
-                class="reaction-trigger-btn inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-cyan-300 border border-slate-750 hover:border-cyan-500/50 transition-all cursor-pointer active:scale-95 shadow-sm"
+                onclick={() => toggleQuickReaction(msg.id)}
+                class="reaction-trigger-btn inline-flex items-center justify-center w-7 h-7 sm:w-6 sm:h-6 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-cyan-300 border border-slate-750 hover:border-cyan-500/50 transition-all cursor-pointer active:scale-90 shadow-sm touch-manipulation"
                 title="Add reaction"
               >
-                <SmilePlus class="w-3.5 h-3.5" />
+                <SmilePlus class="w-3.5 h-3.5 pointer-events-none" />
               </button>
             </div>
           {/if}

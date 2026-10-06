@@ -34,14 +34,21 @@
   let searchInput = $state(null);
   let scrollContainer = $state(null);
   let hoveredEmoji = $state(null);
+  let isHoverDevice = false;
 
   onMount(() => {
+    isHoverDevice = typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
     recentEmojis = getRecentEmojis();
     // Focus search input on mount if not mobile
     if (window.innerWidth >= 640 && searchInput) {
       searchInput.focus();
     }
   });
+
+  function handleEmojiHover(item, e) {
+    if (!isHoverDevice || e?.pointerType === 'touch') return;
+    hoveredEmoji = item;
+  }
 
   let searchResults = $derived.by(() => {
     if (!searchQuery.trim()) return null;
@@ -154,7 +161,7 @@
         <button
           type="button"
           onclick={() => scrollToCategory('recent')}
-          class="p-1.5 rounded-lg text-xs transition-colors cursor-pointer {activeTab === 'recent'
+          class="p-1.5 rounded-lg text-xs transition-colors cursor-pointer touch-manipulation active:scale-95 {activeTab === 'recent'
             ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/80'
             : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'}"
           title="Recent / Popular"
@@ -168,7 +175,7 @@
         <button
           type="button"
           onclick={() => scrollToCategory(cat.id)}
-          class="p-1.5 rounded-lg text-xs transition-colors cursor-pointer {activeTab === cat.id
+          class="p-1.5 rounded-lg text-xs transition-colors cursor-pointer touch-manipulation active:scale-95 {activeTab === cat.id
             ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/80'
             : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'}"
           title={cat.name}
@@ -202,12 +209,12 @@
               <button
                 type="button"
                 onclick={() => handleSelect(item.emoji)}
-                onmouseenter={() => (hoveredEmoji = item)}
-                onmouseleave={() => (hoveredEmoji = null)}
-                class="w-9 h-9 flex items-center justify-center text-xl sm:text-2xl rounded-xl hover:bg-slate-800/90 active:scale-95 transition-all duration-100 cursor-pointer hover:scale-120 hover:z-10"
+                onmouseenter={(e) => handleEmojiHover(item, e)}
+                onmouseleave={() => { if (isHoverDevice) hoveredEmoji = null; }}
+                class="w-9 h-9 flex items-center justify-center text-xl sm:text-2xl rounded-xl hover:bg-slate-800/90 active:scale-90 transition-all duration-100 cursor-pointer sm:hover:scale-120 sm:hover:z-10 touch-manipulation select-none"
                 title={item.name}
               >
-                <span>{item.emoji}</span>
+                <span class="pointer-events-none select-none">{item.emoji}</span>
               </button>
             {/each}
           </div>
@@ -229,10 +236,12 @@
               <button
                 type="button"
                 onclick={() => handleSelect(em)}
-                class="w-9 h-9 flex items-center justify-center text-xl sm:text-2xl rounded-xl hover:bg-slate-800/90 active:scale-95 transition-all duration-100 cursor-pointer hover:scale-125 hover:z-10"
+                onmouseenter={(e) => handleEmojiHover({ emoji: em, name: '' }, e)}
+                onmouseleave={() => { if (isHoverDevice) hoveredEmoji = null; }}
+                class="w-9 h-9 flex items-center justify-center text-xl sm:text-2xl rounded-xl hover:bg-slate-800/90 active:scale-90 transition-all duration-100 cursor-pointer sm:hover:scale-125 sm:hover:z-10 touch-manipulation select-none"
                 title={em}
               >
-                <span>{em}</span>
+                <span class="pointer-events-none select-none">{em}</span>
               </button>
             {/each}
           </div>
@@ -251,12 +260,12 @@
               <button
                 type="button"
                 onclick={() => handleSelect(item.emoji)}
-                onmouseenter={() => (hoveredEmoji = item)}
-                onmouseleave={() => (hoveredEmoji = null)}
-                class="w-9 h-9 flex items-center justify-center text-xl sm:text-2xl rounded-xl hover:bg-slate-800/90 active:scale-95 transition-all duration-100 cursor-pointer hover:scale-125 hover:z-10"
+                onmouseenter={(e) => handleEmojiHover(item, e)}
+                onmouseleave={() => { if (isHoverDevice) hoveredEmoji = null; }}
+                class="w-9 h-9 flex items-center justify-center text-xl sm:text-2xl rounded-xl hover:bg-slate-800/90 active:scale-90 transition-all duration-100 cursor-pointer sm:hover:scale-125 sm:hover:z-10 touch-manipulation select-none"
                 title={item.name}
               >
-                <span>{item.emoji}</span>
+                <span class="pointer-events-none select-none">{item.emoji}</span>
               </button>
             {/each}
           </div>
@@ -273,7 +282,7 @@
         <span class="truncate capitalize text-slate-300">{hoveredEmoji.name}</span>
       </div>
     {:else}
-      <span class="text-slate-500">Click to select emoji</span>
+      <span class="text-slate-500">Tap or click to select emoji</span>
       <span class="text-[10px] text-slate-600">Esc to close</span>
     {/if}
   </div>
