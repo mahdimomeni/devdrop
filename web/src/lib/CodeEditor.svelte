@@ -32,6 +32,9 @@
         const parsed = JSON.parse(currentText);
         formatted = JSON.stringify(parsed, null, 2);
         showFormatNotification('JSON formatted successfully');
+      } else if (selectedLang === 'markdown') {
+        formatted = formatMarkdown(currentText);
+        showFormatNotification('Markdown formatted');
       } else if (selectedLang === 'typescript' || selectedLang === 'javascript') {
         // Basic clean indentation and spacing
         formatted = formatSimpleIndentedCode(currentText);
@@ -49,6 +52,36 @@
     } catch (err) {
       showFormatNotification('Format error: ' + err.message, true);
     }
+  }
+
+  function formatMarkdown(text) {
+    const lines = text.split('\n');
+    const result = [];
+    let blankCount = 0;
+
+    for (let rawLine of lines) {
+      if (!rawLine.trim()) {
+        blankCount++;
+        if (blankCount <= 1) {
+          result.push('');
+        }
+        continue;
+      }
+      blankCount = 0;
+
+      let line = rawLine;
+      if (line.endsWith('  ') && !line.endsWith('   ')) {
+        line = line.trimEnd() + '  ';
+      } else {
+        line = line.trimEnd();
+      }
+
+      // Ensure space after '#' for headings (#Heading -> # Heading)
+      line = line.replace(/^(#{1,6})([^\s#])/, '$1 $2');
+
+      result.push(line);
+    }
+    return result.join('\n');
   }
 
   function formatSimpleIndentedCode(text) {

@@ -11,7 +11,7 @@ DevDrop runs on a central LAN workstation or server with **zero configuration** 
 
 - **Zero Config & Instant Identity:** No passwords or user signups. Monikers are automatically assigned (e.g. `Dev-192.168.1.55` or `HyperGopher`) and users can click to customize their display handle anytime.
 - **Real-Time LAN Presence:** Persistent WebSockets track online/offline peers in real-time, displaying active status dots, IP addresses, and unread message badges.
-- **Syntax-Aware Code Snippet Drawer:** Powered by CodeMirror 6 with dark mode (`One Dark`), line numbers, multi-language support (Go, C#, Java, TypeScript/JavaScript, Python, JSON, YAML, SQL, Shell, Plaintext), a **Format / Beautify** button, 1-click **Copy Raw**, and **Side-by-Side Diff View** for comparing revisions.
+- **Syntax-Aware Code Snippet Drawer:** Powered by CodeMirror 6 with dark mode (`One Dark`), line numbers, multi-language support (Go, C#, Java, TypeScript/JavaScript, Python, Markdown with chat preview, JSON, YAML, SQL, Shell, Plaintext), linting & diagnostic markers, a **Format / Beautify** button, 1-click **Copy Raw**, and **Side-by-Side Diff View** for comparing revisions.
 - **Streaming Folder Zip & Ephemeral Storage:**
   - **Dev-Ignore Filter:** Toggle enabled by default to strip out common bloatware directories: `.git`, `node_modules`, `target`, `vendor`, `.idea`, `.vscode`, `dist`, `build`.
   - **Streaming Zip to Disk:** Incoming folders stream directly into an `archive/zip` writer backed by an `os.File` in `./data/uploads/` using **fixed-size $32\text{ KB}$ buffers**. RAM consumption stays constant regardless of whether you drop a 10MB or 2GB repository.
@@ -166,8 +166,8 @@ When started, DevDrop detects your local LAN network adapters and prints accessi
 
 ### 💻 Code Snippet Sharing & Diffing
 1. Click **Add Code** (or paste multi-line code to get auto-prompted).
-2. Choose language (Go, Python, TypeScript, etc.) and click **Format / Beautify**.
-3. Once sent, peers can click **Copy Raw** or click **Compare Diff** on consecutive snippets to see side-by-side line additions and deletions.
+2. Choose language (Go, Python, TypeScript, Markdown, etc.) and click **Format / Beautify**.
+3. Once sent, peers can click **Copy Raw**, click **Compare Diff** on consecutive snippets to see side-by-side line additions and deletions, or click **Preview** on Markdown snippets to switch seamlessly between syntax-highlighted code and rendered Markdown.
 
 ### 🔥 Ephemeral Transfers & Burn-On-Read
 - Select **Burn on Read (1x)** from the TTL selector.

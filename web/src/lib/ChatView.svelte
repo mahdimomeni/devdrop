@@ -23,13 +23,14 @@
     Loader2,
     ChevronDown,
     ChevronUp,
-    ChevronLeft
+    ChevronLeft,
+    Eye
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
   import CodeEditor from './CodeEditor.svelte';
   import DiffModal from './DiffModal.svelte';
-  import { highlightCodeLines } from './syntaxHighlight.js';
+  import { highlightCodeLines, normalizeLang, renderMarkdown } from './syntaxHighlight.js';
 
   let {
     currentUser,
@@ -94,6 +95,23 @@
 
   function isExpanded(msgId) {
     return expandedMessageIds.has(msgId);
+  }
+
+  // Markdown preview mode tracking: Set of snippet message IDs displayed in rendered preview mode
+  let previewMessageIds = $state(new Set());
+
+  function toggleMarkdownPreview(msgId) {
+    const next = new Set(previewMessageIds);
+    if (next.has(msgId)) {
+      next.delete(msgId);
+    } else {
+      next.add(msgId);
+    }
+    previewMessageIds = next;
+  }
+
+  function isMarkdownPreview(msgId) {
+    return previewMessageIds.has(msgId);
   }
 
   // Thresholds for collapsing long text and code
@@ -873,6 +891,8 @@
             </div>
 
           {:else if msg.type === 'code' && msg.snippet}
+            {@const isMarkdown = normalizeLang(msg.snippet.language) === 'markdown'}
+            {@const inPreview = isMarkdown && isMarkdownPreview(msg.id)}
             {@const codeInfo = getCodePreview(msg.snippet.code_content, msg.snippet.language, isExpanded(msg.id))}
             <!-- Code Snippet Card -->
             <div class="w-full max-w-[96%] sm:max-w-2xl md:max-w-3xl rounded-xl overflow-hidden border border-slate-750 bg-slate-950 shadow-xl">
@@ -885,6 +905,11 @@
                   <span class="text-[10px] sm:text-[11px] font-mono px-1.5 sm:px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex-shrink-0">
                     {codeInfo.totalLines} lines
                   </span>
+                  {#if inPreview}
+                    <span class="text-[9px] sm:text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/60 uppercase flex-shrink-0">
+                      Preview
+                    </span>
+                  {/if}
                   {#if msg.body}
                     <span class="text-xs text-slate-300 font-mono truncate max-w-[100px] sm:max-w-sm hidden xs:inline">
                       {msg.body}
@@ -893,6 +918,25 @@
                 </div>
 
                 <div class="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                  <!-- Markdown Preview / Code Toggle Button: ONLY for Markdown -->
+                  {#if isMarkdown}
+                    <button
+                      onclick={() => toggleMarkdownPreview(msg.id)}
+                      class="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer font-medium {inPreview
+                        ? 'text-cyan-300 bg-cyan-950/80 hover:bg-cyan-900/80 border border-cyan-700/60 shadow-sm'
+                        : 'text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700'}"
+                      title={inPreview ? "Switch to Code view" : "Preview rendered Markdown"}
+                    >
+                      {#if inPreview}
+                        <Code class="w-3.5 h-3.5 text-cyan-400" />
+                        <span class="hidden sm:inline">Code</span>
+                      {:else}
+                        <Eye class="w-3.5 h-3.5 text-cyan-400" />
+                        <span class="hidden sm:inline">Preview</span>
+                      {/if}
+                    </button>
+                  {/if}
+
                   <!-- Diff Button if previous snippet exists -->
                   {#if prevSnippet}
                     <button
@@ -925,7 +969,7 @@
                     <button
                       onclick={() => toggleExpand(msg.id)}
                       class="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-900/70 border border-cyan-800/60 rounded-lg transition-colors cursor-pointer"
-                      title={isExpanded(msg.id) ? "Collapse snippet" : "Expand snippet"}
+                      title={isExpanded(msg.id) ? (inPreview ? "Collapse preview" : "Collapse snippet") : (inPreview ? "Expand preview" : "Expand snippet")}
                     >
                       {#if isExpanded(msg.id)}
                         <ChevronUp class="w-3.5 h-3.5" />
@@ -939,58 +983,103 @@
                 </div>
               </div>
 
-              <!-- Code Lines with numbering -->
-              <div class="relative">
-                <div class="p-2.5 sm:p-3 overflow-x-auto text-[11px] sm:text-xs font-mono leading-relaxed bg-slate-950 text-slate-200 {isExpanded(msg.id) ? 'max-h-[520px] overflow-y-auto' : ''}">
-                  <table class="border-collapse w-full">
-                    <tbody>
-                      {#each codeInfo.displayLines as line, lIdx}
-                        <tr class="hover:bg-slate-900/70 transition-colors">
-                          <td class="pr-2 sm:pr-4 py-0.5 text-right text-slate-600 select-none w-8 sm:w-10 font-mono text-[10px] sm:text-[11px] align-top">
-                            {lIdx + 1}
-                          </td>
-                          <td class="py-0.5 whitespace-pre font-mono text-slate-200 break-normal">
-                            {@html line || '&nbsp;'}
-                          </td>
-                        </tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                </div>
+              <!-- Snippet Body: Preview or Code Lines -->
+              {#if inPreview}
+                <!-- Rendered Markdown View -->
+                <div class="relative bg-slate-950">
+                  <div class="p-3.5 sm:p-5 overflow-x-auto text-slate-200 select-text {isExpanded(msg.id) ? 'max-h-[600px] overflow-y-auto' : (codeInfo.isLong ? 'max-h-80 overflow-hidden' : '')}">
+                    <div class="markdown-preview">
+                      {@html renderMarkdown(msg.snippet.code_content)}
+                    </div>
+                  </div>
 
-                <!-- Collapsed Bottom Bar with Gradient Overlay -->
-                {#if codeInfo.isLong && !isExpanded(msg.id)}
-                  <div class="relative bg-gradient-to-b from-slate-950/50 via-slate-900/95 to-slate-900 border-t border-slate-800/80 px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-2">
-                    <span class="text-[10px] sm:text-[11px] font-mono text-slate-400 truncate">
-                      14 of {codeInfo.totalLines} lines ({codeInfo.hiddenLines} hidden)
-                    </span>
-                    <button
-                      type="button"
-                      onclick={() => toggleExpand(msg.id)}
-                      class="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 bg-cyan-950 hover:bg-cyan-900/80 border border-cyan-800 text-cyan-300 hover:text-white rounded-lg text-xs font-mono font-medium shadow transition-colors cursor-pointer active:scale-95 flex-shrink-0"
-                    >
-                      <ChevronDown class="w-3.5 h-3.5" />
-                      <span class="hidden sm:inline">Expand snippet ({codeInfo.totalLines} lines)</span>
-                      <span class="sm:hidden">Expand ({codeInfo.totalLines})</span>
-                    </button>
+                  <!-- Collapsed Bottom Bar for long preview -->
+                  {#if codeInfo.isLong && !isExpanded(msg.id)}
+                    <div class="relative bg-gradient-to-b from-slate-950/50 via-slate-900/95 to-slate-900 border-t border-slate-800/80 px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-2">
+                      <span class="text-[10px] sm:text-[11px] font-mono text-slate-400 truncate">
+                        Preview collapsed ({codeInfo.totalLines} lines in source)
+                      </span>
+                      <button
+                        type="button"
+                        onclick={() => toggleExpand(msg.id)}
+                        class="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 bg-cyan-950 hover:bg-cyan-900/80 border border-cyan-800 text-cyan-300 hover:text-white rounded-lg text-xs font-mono font-medium shadow transition-colors cursor-pointer active:scale-95 flex-shrink-0"
+                      >
+                        <ChevronDown class="w-3.5 h-3.5" />
+                        <span class="hidden sm:inline">Expand full preview</span>
+                        <span class="sm:hidden">Expand</span>
+                      </button>
+                    </div>
+                  {:else if codeInfo.isLong && isExpanded(msg.id)}
+                    <!-- Expanded Bottom Collapse Footer -->
+                    <div class="bg-slate-900/90 border-t border-slate-800 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs font-mono">
+                      <span class="text-[10px] sm:text-[11px] text-slate-400">
+                        Full preview expanded
+                      </span>
+                      <button
+                        type="button"
+                        onclick={() => toggleExpand(msg.id)}
+                        class="flex items-center gap-1 px-2.5 py-0.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                      >
+                        <ChevronUp class="w-3.5 h-3.5" />
+                        <span>Collapse</span>
+                      </button>
+                    </div>
+                  {/if}
+                </div>
+              {:else}
+                <!-- Code Lines with numbering -->
+                <div class="relative">
+                  <div class="p-2.5 sm:p-3 overflow-x-auto text-[11px] sm:text-xs font-mono leading-relaxed bg-slate-950 text-slate-200 {isExpanded(msg.id) ? 'max-h-[520px] overflow-y-auto' : ''}">
+                    <table class="border-collapse w-full">
+                      <tbody>
+                        {#each codeInfo.displayLines as line, lIdx}
+                          <tr class="hover:bg-slate-900/70 transition-colors">
+                            <td class="pr-2 sm:pr-4 py-0.5 text-right text-slate-600 select-none w-8 sm:w-10 font-mono text-[10px] sm:text-[11px] align-top">
+                              {lIdx + 1}
+                            </td>
+                            <td class="py-0.5 whitespace-pre font-mono text-slate-200 break-normal">
+                              {@html line || '&nbsp;'}
+                            </td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
                   </div>
-                {:else if codeInfo.isLong && isExpanded(msg.id)}
-                  <!-- Expanded Bottom Collapse Footer -->
-                  <div class="bg-slate-900/90 border-t border-slate-800 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs font-mono">
-                    <span class="text-[10px] sm:text-[11px] text-slate-400">
-                      All {codeInfo.totalLines} lines visible
-                    </span>
-                    <button
-                      type="button"
-                      onclick={() => toggleExpand(msg.id)}
-                      class="flex items-center gap-1 px-2.5 py-0.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors cursor-pointer"
-                    >
-                      <ChevronUp class="w-3.5 h-3.5" />
-                      <span>Collapse</span>
-                    </button>
-                  </div>
-                {/if}
-              </div>
+
+                  <!-- Collapsed Bottom Bar with Gradient Overlay -->
+                  {#if codeInfo.isLong && !isExpanded(msg.id)}
+                    <div class="relative bg-gradient-to-b from-slate-950/50 via-slate-900/95 to-slate-900 border-t border-slate-800/80 px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-2">
+                      <span class="text-[10px] sm:text-[11px] font-mono text-slate-400 truncate">
+                        14 of {codeInfo.totalLines} lines ({codeInfo.hiddenLines} hidden)
+                      </span>
+                      <button
+                        type="button"
+                        onclick={() => toggleExpand(msg.id)}
+                        class="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 bg-cyan-950 hover:bg-cyan-900/80 border border-cyan-800 text-cyan-300 hover:text-white rounded-lg text-xs font-mono font-medium shadow transition-colors cursor-pointer active:scale-95 flex-shrink-0"
+                      >
+                        <ChevronDown class="w-3.5 h-3.5" />
+                        <span class="hidden sm:inline">Expand snippet ({codeInfo.totalLines} lines)</span>
+                        <span class="sm:hidden">Expand ({codeInfo.totalLines})</span>
+                      </button>
+                    </div>
+                  {:else if codeInfo.isLong && isExpanded(msg.id)}
+                    <!-- Expanded Bottom Collapse Footer -->
+                    <div class="bg-slate-900/90 border-t border-slate-800 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs font-mono">
+                      <span class="text-[10px] sm:text-[11px] text-slate-400">
+                        All {codeInfo.totalLines} lines visible
+                      </span>
+                      <button
+                        type="button"
+                        onclick={() => toggleExpand(msg.id)}
+                        class="flex items-center gap-1 px-2.5 py-0.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                      >
+                        <ChevronUp class="w-3.5 h-3.5" />
+                        <span>Collapse</span>
+                      </button>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
 
           {:else if msg.type === 'file' && msg.transfer}
