@@ -19,7 +19,7 @@
     Info,
     FileText
   } from 'lucide-svelte';
-  import { formatRelativeTime } from './api.js';
+  import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
   import CodeEditor from './CodeEditor.svelte';
   import DiffModal from './DiffModal.svelte';
@@ -303,8 +303,8 @@
     }
   }
 
-  function copyCodeRaw(msgId, codeContent) {
-    navigator.clipboard.writeText(codeContent);
+  async function copyCodeRaw(msgId, codeContent) {
+    await copyToClipboard(codeContent);
     copiedId = msgId;
     setTimeout(() => {
       if (copiedId === msgId) copiedId = null;

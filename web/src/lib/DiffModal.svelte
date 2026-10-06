@@ -1,6 +1,7 @@
 <script>
   import * as Diff from 'diff';
   import { X, GitCompare, Copy, Check } from 'lucide-svelte';
+  import { copyToClipboard } from './api.js';
 
   let { oldCode = '', newCode = '', oldLabel = 'Snippet A', newLabel = 'Snippet B', onClose } = $props();
 
@@ -11,8 +12,8 @@
     return Diff.diffLines(oldCode, newCode);
   });
 
-  function copyNew() {
-    navigator.clipboard.writeText(newCode);
+  async function copyNew() {
+    await copyToClipboard(newCode);
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
