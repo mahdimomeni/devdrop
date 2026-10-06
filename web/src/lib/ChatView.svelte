@@ -29,6 +29,7 @@
   import FileCard from './FileCard.svelte';
   import CodeEditor from './CodeEditor.svelte';
   import DiffModal from './DiffModal.svelte';
+  import { highlightCodeLines } from './syntaxHighlight.js';
 
   let {
     currentUser,
@@ -123,12 +124,12 @@
     };
   }
 
-  function getCodePreview(codeContent, isSnippetExpanded) {
+  function getCodePreview(codeContent, language, isSnippetExpanded) {
     if (!codeContent) return { displayLines: [], isLong: false, totalLines: 0, hiddenLines: 0 };
-    const lines = codeContent.split('\n');
-    const totalLines = lines.length;
+    const highlightedLines = highlightCodeLines(codeContent, language);
+    const totalLines = highlightedLines.length;
     const isLong = totalLines > MAX_CODE_LINES;
-    const displayLines = !isLong || isSnippetExpanded ? lines : lines.slice(0, MAX_CODE_LINES);
+    const displayLines = !isLong || isSnippetExpanded ? highlightedLines : highlightedLines.slice(0, MAX_CODE_LINES);
 
     return {
       displayLines,
@@ -872,7 +873,7 @@
             </div>
 
           {:else if msg.type === 'code' && msg.snippet}
-            {@const codeInfo = getCodePreview(msg.snippet.code_content, isExpanded(msg.id))}
+            {@const codeInfo = getCodePreview(msg.snippet.code_content, msg.snippet.language, isExpanded(msg.id))}
             <!-- Code Snippet Card -->
             <div class="w-full max-w-[96%] sm:max-w-2xl md:max-w-3xl rounded-xl overflow-hidden border border-slate-750 bg-slate-950 shadow-xl">
               <!-- Code Card Header -->
@@ -949,7 +950,7 @@
                             {lIdx + 1}
                           </td>
                           <td class="py-0.5 whitespace-pre font-mono text-slate-200 break-normal">
-                            {line || ' '}
+                            {@html line || '&nbsp;'}
                           </td>
                         </tr>
                       {/each}

@@ -3,17 +3,8 @@
   import { EditorView, basicSetup } from 'codemirror';
   import { EditorState, Compartment } from '@codemirror/state';
   import { oneDark } from '@codemirror/theme-one-dark';
-  import { javascript } from '@codemirror/lang-javascript';
-  import { python } from '@codemirror/lang-python';
-  import { json } from '@codemirror/lang-json';
-  import { sql } from '@codemirror/lang-sql';
-  import { java } from '@codemirror/lang-java';
-  import { yaml } from '@codemirror/lang-yaml';
-  import { StreamLanguage } from '@codemirror/language';
-  import { go } from '@codemirror/legacy-modes/mode/go';
-  import { csharp } from '@codemirror/legacy-modes/mode/clike';
-  import { shell } from '@codemirror/legacy-modes/mode/shell';
   import { Code2, Wand2, X, Send, Sparkles } from 'lucide-svelte';
+  import { supportedLanguages, getLangExtension } from './syntaxHighlight.js';
 
   let { initialCode = '', initialLanguage = 'go', onSend, onClose } = $props();
 
@@ -30,45 +21,6 @@
   });
 
   const languageCompartment = new Compartment();
-
-  const supportedLanguages = [
-    { id: 'go', name: 'Go' },
-    { id: 'typescript', name: 'TypeScript / JS' },
-    { id: 'python', name: 'Python' },
-    { id: 'json', name: 'JSON' },
-    { id: 'yaml', name: 'YAML' },
-    { id: 'sql', name: 'SQL' },
-    { id: 'csharp', name: 'C#' },
-    { id: 'java', name: 'Java' },
-    { id: 'shell', name: 'Shell / Bash' },
-    { id: 'plaintext', name: 'Plaintext' },
-  ];
-
-  function getLangExtension(lang) {
-    switch (lang) {
-      case 'go':
-        return StreamLanguage.define(go);
-      case 'typescript':
-      case 'javascript':
-        return javascript({ typescript: true });
-      case 'python':
-        return python();
-      case 'json':
-        return json();
-      case 'yaml':
-        return yaml();
-      case 'sql':
-        return sql();
-      case 'csharp':
-        return StreamLanguage.define(csharp);
-      case 'java':
-        return java();
-      case 'shell':
-        return StreamLanguage.define(shell);
-      default:
-        return [];
-    }
-  }
 
   function formatBeautify() {
     if (!editorView) return;
