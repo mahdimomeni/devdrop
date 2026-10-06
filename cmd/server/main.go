@@ -78,7 +78,7 @@ func main() {
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link", "Content-Disposition"},
+		ExposedHeaders:   []string{"Link", "Content-Disposition", "X-Has-More"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))

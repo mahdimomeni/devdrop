@@ -21,7 +21,8 @@
     Reply,
     X,
     Loader2,
-    ChevronDown
+    ChevronDown,
+    ChevronUp
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
@@ -74,6 +75,66 @@
   // Copied message IDs
   let copiedId = $state(null);
 
+  // Expanded messages tracking: all long messages and code are collapsed by default!
+  let expandedMessageIds = $state(new Set());
+
+  function toggleExpand(msgId) {
+    const next = new Set(expandedMessageIds);
+    if (next.has(msgId)) {
+      next.delete(msgId);
+    } else {
+      next.add(msgId);
+    }
+    expandedMessageIds = next;
+  }
+
+  function isExpanded(msgId) {
+    return expandedMessageIds.has(msgId);
+  }
+
+  // Thresholds for collapsing long text and code
+  const MAX_TEXT_CHARS = 400;
+  const MAX_TEXT_LINES = 7;
+  const MAX_CODE_LINES = 14;
+
+  function getTextPreview(text, isMsgExpanded) {
+    if (!text) return { displayText: '', isLong: false, remainingLines: 0, totalLength: 0 };
+    const lines = text.split('\n');
+    const isLong = text.length > MAX_TEXT_CHARS || lines.length > MAX_TEXT_LINES;
+    if (!isLong || isMsgExpanded) {
+      return { displayText: text, isLong, remainingLines: 0, totalLength: text.length };
+    }
+
+    let preview = lines.slice(0, MAX_TEXT_LINES).join('\n');
+    if (preview.length > MAX_TEXT_CHARS) {
+      preview = preview.slice(0, MAX_TEXT_CHARS).trimEnd() + '...';
+    } else if (lines.length > MAX_TEXT_LINES) {
+      preview += '\n...';
+    }
+
+    return {
+      displayText: preview,
+      isLong: true,
+      remainingLines: Math.max(0, lines.length - MAX_TEXT_LINES),
+      totalLength: text.length,
+    };
+  }
+
+  function getCodePreview(codeContent, isSnippetExpanded) {
+    if (!codeContent) return { displayLines: [], isLong: false, totalLines: 0, hiddenLines: 0 };
+    const lines = codeContent.split('\n');
+    const totalLines = lines.length;
+    const isLong = totalLines > MAX_CODE_LINES;
+    const displayLines = !isLong || isSnippetExpanded ? lines : lines.slice(0, MAX_CODE_LINES);
+
+    return {
+      displayLines,
+      isLong,
+      totalLines,
+      hiddenLines: Math.max(0, totalLines - MAX_CODE_LINES),
+    };
+  }
+
   // Scroll and pagination tracking
   let isNearBottom = $state(true);
   let hasNewUnreadBelow = $state(false);
@@ -108,32 +169,47 @@
     }
 
     // Check if user scrolled near top to lazy-load older messages
-    if (scrollTop < 80 && hasMore && !isLoadingOlder && !isPrepending && onLoadOlder) {
+    if (scrollTop < 120 && hasMore && !isLoadingOlder && !isPrepending && onLoadOlder) {
       triggerLoadOlder();
     }
   }
 
-  // Lazy load older messages while seamlessly retaining scroll position
+  // Lazy load older messages while seamlessly retaining scroll position using anchor element
   async function triggerLoadOlder() {
-    if (!messagesContainer || !onLoadOlder || isLoadingOlder || isPrepending || !hasMore) return;
+    if (!messagesContainer || !onLoadOlder || isLoadingOlder || isPrepending || !hasMore || messages.length === 0) return;
 
     isPrepending = true;
+
+    // Record top offset of current oldest message element before prepending
+    const anchorId = messages[0]?.id;
+    const anchorEl = anchorId ? document.getElementById(`msg-${anchorId}`) : null;
+    const anchorOffsetBefore = anchorEl ? anchorEl.getBoundingClientRect().top : null;
     const prevScrollHeight = messagesContainer.scrollHeight;
     const prevScrollTop = messagesContainer.scrollTop;
 
     try {
-      await onLoadOlder();
+      const loaded = await onLoadOlder();
+      if (!loaded) return;
       await tick();
 
       if (messagesContainer) {
-        const newScrollHeight = messagesContainer.scrollHeight;
-        const heightDiff = newScrollHeight - prevScrollHeight;
-        messagesContainer.scrollTop = prevScrollTop + heightDiff;
+        const anchorElAfter = anchorId ? document.getElementById(`msg-${anchorId}`) : null;
+        if (anchorElAfter && anchorOffsetBefore !== null) {
+          // Precise anchor delta restoration
+          const anchorOffsetAfter = anchorElAfter.getBoundingClientRect().top;
+          const delta = anchorOffsetAfter - anchorOffsetBefore;
+          messagesContainer.scrollTop += delta;
+        } else {
+          // Fallback to scrollHeight diff
+          const newScrollHeight = messagesContainer.scrollHeight;
+          const heightDiff = newScrollHeight - prevScrollHeight;
+          messagesContainer.scrollTop = prevScrollTop + heightDiff;
+        }
       }
     } finally {
       setTimeout(() => {
         isPrepending = false;
-      }, 120);
+      }, 150);
     }
   }
 
@@ -623,7 +699,8 @@
   <div
     bind:this={messagesContainer}
     onscroll={handleContainerScroll}
-    class="flex-1 overflow-y-auto p-6 space-y-5 select-text"
+    class="flex-1 overflow-y-auto p-6 space-y-5 select-text [overflow-anchor:none]"
+    style="overflow-anchor: none;"
   >
     {#if isLoadingMessages}
       <div class="h-full flex flex-col items-center justify-center text-center p-8 text-slate-500">
@@ -647,11 +724,22 @@
     {:else}
       <!-- Lazy load top indicator or beginning marker -->
       {#if isLoadingOlder}
-        <div class="flex items-center justify-center py-2 text-xs font-mono text-cyan-400 gap-2">
+        <div class="flex items-center justify-center py-2.5 text-xs font-mono text-cyan-400 gap-2 bg-slate-950/70 border border-slate-800 rounded-xl my-2">
           <Loader2 class="w-4 h-4 animate-spin text-cyan-400" />
           <span>Loading earlier messages...</span>
         </div>
-      {:else if !hasMore}
+      {:else if hasMore}
+        <div class="flex items-center justify-center my-3">
+          <button
+            type="button"
+            onclick={triggerLoadOlder}
+            class="flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-950/80 hover:bg-slate-800 text-slate-300 hover:text-cyan-300 border border-slate-800 hover:border-cyan-500/50 text-xs font-mono transition-all shadow-md active:scale-95 cursor-pointer"
+          >
+            <ChevronUp class="w-3.5 h-3.5 text-cyan-400" />
+            <span>Load earlier messages</span>
+          </button>
+        </div>
+      {:else}
         <div class="flex items-center justify-center my-3">
           <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-950/70 border border-slate-800 text-[11px] font-mono text-slate-500 shadow-sm">
             <Radio class="w-3 h-3 text-cyan-400/70" />
@@ -722,22 +810,56 @@
 
           <!-- Message Body by Type -->
           {#if msg.type === 'text'}
+            {@const textPreview = getTextPreview(msg.body, isExpanded(msg.id))}
             <div
-              class="max-w-2xl px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
+              class="relative max-w-2xl px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
                 ? 'bg-cyan-600 text-white rounded-br-xs'
                 : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-xs'}"
             >
-              {msg.body}
+              <div class="{!isExpanded(msg.id) && textPreview.isLong ? 'max-h-52 overflow-hidden relative' : ''} {isExpanded(msg.id) && textPreview.totalLength > 1500 ? 'max-h-[500px] overflow-y-auto pr-1' : ''}">
+                {textPreview.displayText}
+              </div>
+
+              {#if textPreview.isLong}
+                <div class="mt-2 pt-1.5 border-t {isMe ? 'border-cyan-500/50' : 'border-slate-700/80'} flex items-center justify-between gap-3 text-xs font-mono">
+                  <span class="text-[11px] {isMe ? 'text-cyan-100/80' : 'text-slate-400'}">
+                    {#if !isExpanded(msg.id)}
+                      {textPreview.remainingLines > 0 ? `+${textPreview.remainingLines} lines hidden` : 'Long message collapsed'}
+                    {:else}
+                      Full message expanded
+                    {/if}
+                  </span>
+                  <button
+                    type="button"
+                    onclick={() => toggleExpand(msg.id)}
+                    class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-mono font-medium transition-colors cursor-pointer {isMe
+                      ? 'bg-cyan-700 hover:bg-cyan-800 text-white shadow-sm'
+                      : 'bg-slate-900/90 hover:bg-slate-900 text-cyan-300 border border-slate-700 shadow-sm'}"
+                  >
+                    {#if isExpanded(msg.id)}
+                      <ChevronUp class="w-3.5 h-3.5" />
+                      <span>Show less</span>
+                    {:else}
+                      <ChevronDown class="w-3.5 h-3.5" />
+                      <span>Show more</span>
+                    {/if}
+                  </button>
+                </div>
+              {/if}
             </div>
 
           {:else if msg.type === 'code' && msg.snippet}
+            {@const codeInfo = getCodePreview(msg.snippet.code_content, isExpanded(msg.id))}
             <!-- Code Snippet Card -->
             <div class="w-full max-w-3xl rounded-xl overflow-hidden border border-slate-750 bg-slate-950 shadow-xl">
               <!-- Code Card Header -->
               <div class="flex items-center justify-between px-4 py-2 bg-slate-900/90 border-b border-slate-800">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 min-w-0">
                   <span class="text-xs font-bold font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60 uppercase">
                     {msg.snippet.language}
+                  </span>
+                  <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                    {codeInfo.totalLines} lines
                   </span>
                   {#if msg.body}
                     <span class="text-xs text-slate-300 font-mono truncate max-w-sm">
@@ -773,25 +895,76 @@
                       <span>Copy Raw</span>
                     {/if}
                   </button>
+
+                  <!-- Toggle Expand/Collapse in Header for long snippets -->
+                  {#if codeInfo.isLong}
+                    <button
+                      onclick={() => toggleExpand(msg.id)}
+                      class="flex items-center gap-1 px-2.5 py-1 text-xs text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-900/70 border border-cyan-800/60 rounded-lg transition-colors cursor-pointer"
+                      title={isExpanded(msg.id) ? "Collapse snippet" : "Expand snippet"}
+                    >
+                      {#if isExpanded(msg.id)}
+                        <ChevronUp class="w-3.5 h-3.5" />
+                        <span>Collapse</span>
+                      {:else}
+                        <ChevronDown class="w-3.5 h-3.5" />
+                        <span>Expand</span>
+                      {/if}
+                    </button>
+                  {/if}
                 </div>
               </div>
 
               <!-- Code Lines with numbering -->
-              <div class="p-3 overflow-x-auto text-xs font-mono leading-relaxed bg-slate-950 text-slate-200">
-                <table class="border-collapse w-full">
-                  <tbody>
-                    {#each msg.snippet.code_content.split('\n') as line, lIdx}
-                      <tr class="hover:bg-slate-900/70 transition-colors">
-                        <td class="pr-4 py-0.5 text-right text-slate-600 select-none w-10 font-mono text-[11px] align-top">
-                          {lIdx + 1}
-                        </td>
-                        <td class="py-0.5 whitespace-pre font-mono text-slate-200 break-normal">
-                          {line || ' '}
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
+              <div class="relative">
+                <div class="p-3 overflow-x-auto text-xs font-mono leading-relaxed bg-slate-950 text-slate-200 {isExpanded(msg.id) ? 'max-h-[520px] overflow-y-auto' : ''}">
+                  <table class="border-collapse w-full">
+                    <tbody>
+                      {#each codeInfo.displayLines as line, lIdx}
+                        <tr class="hover:bg-slate-900/70 transition-colors">
+                          <td class="pr-4 py-0.5 text-right text-slate-600 select-none w-10 font-mono text-[11px] align-top">
+                            {lIdx + 1}
+                          </td>
+                          <td class="py-0.5 whitespace-pre font-mono text-slate-200 break-normal">
+                            {line || ' '}
+                          </td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Collapsed Bottom Bar with Gradient Overlay -->
+                {#if codeInfo.isLong && !isExpanded(msg.id)}
+                  <div class="relative bg-gradient-to-b from-slate-950/50 via-slate-900/95 to-slate-900 border-t border-slate-800/80 px-4 py-2 flex items-center justify-between">
+                    <span class="text-[11px] font-mono text-slate-400">
+                      Showing 14 of {codeInfo.totalLines} lines ({codeInfo.hiddenLines} hidden)
+                    </span>
+                    <button
+                      type="button"
+                      onclick={() => toggleExpand(msg.id)}
+                      class="flex items-center gap-1.5 px-3 py-1 bg-cyan-950 hover:bg-cyan-900/80 border border-cyan-800 text-cyan-300 hover:text-white rounded-lg text-xs font-mono font-medium shadow transition-colors cursor-pointer active:scale-95"
+                    >
+                      <ChevronDown class="w-3.5 h-3.5" />
+                      <span>Expand snippet ({codeInfo.totalLines} lines)</span>
+                    </button>
+                  </div>
+                {:else if codeInfo.isLong && isExpanded(msg.id)}
+                  <!-- Expanded Bottom Collapse Footer -->
+                  <div class="bg-slate-900/90 border-t border-slate-800 px-4 py-1.5 flex items-center justify-between text-xs font-mono">
+                    <span class="text-[11px] text-slate-400">
+                      All {codeInfo.totalLines} lines visible
+                    </span>
+                    <button
+                      type="button"
+                      onclick={() => toggleExpand(msg.id)}
+                      class="flex items-center gap-1 px-2.5 py-0.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                    >
+                      <ChevronUp class="w-3.5 h-3.5" />
+                      <span>Collapse</span>
+                    </button>
+                  </div>
+                {/if}
               </div>
             </div>
 

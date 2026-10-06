@@ -81,10 +81,18 @@
       if (res.messages && res.messages.length > 0) {
         const existingIds = new Set(messages.map((m) => m.id));
         const newOldMessages = res.messages.filter((m) => !existingIds.has(m.id));
-        messages = [...newOldMessages, ...messages];
+        if (newOldMessages.length > 0) {
+          messages = [...newOldMessages, ...messages];
+          hasMore = res.hasMore;
+          return true;
+        } else {
+          hasMore = false;
+          return false;
+        }
+      } else {
+        hasMore = false;
+        return false;
       }
-      hasMore = res.hasMore;
-      return true;
     } catch (err) {
       console.error('Failed to load older messages:', err);
       return false;

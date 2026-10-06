@@ -143,8 +143,8 @@ export async function getMessages(userId, peerId, limit = 40, before = null) {
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to load messages');
   const messages = await res.json();
-  const hasMoreHeader = res.headers.get('X-Has-More');
-  const hasMore = hasMoreHeader !== null ? hasMoreHeader === 'true' : (messages && messages.length >= limit);
+  const rawHeader = res.headers.get('X-Has-More') || res.headers.get('x-has-more');
+  const hasMore = rawHeader !== null ? rawHeader.toLowerCase() === 'true' : (messages && messages.length >= limit);
   return { messages: messages || [], hasMore };
 }
 
