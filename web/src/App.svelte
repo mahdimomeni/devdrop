@@ -61,9 +61,9 @@
     }
   }
 
-  async function handleSendMessage(body) {
+  async function handleSendMessage(body, replyToId = null) {
     try {
-      await sendTextMessage(userId, selectedPeerId, body);
+      await sendTextMessage(userId, selectedPeerId, body, replyToId);
     } catch (err) {
       showToast('Failed to send message: ' + err.message, 'error');
     }
@@ -76,7 +76,8 @@
         selectedPeerId,
         payload.comment,
         payload.language,
-        payload.code
+        payload.code,
+        payload.replyToId || null
       );
       showToast('Code snippet dropped to LAN');
     } catch (err) {
@@ -85,7 +86,7 @@
   }
 
   async function handleUploadFiles(opts) {
-    const { files, isFolder, folderName, expiration, devIgnore } = opts;
+    const { files, isFolder, folderName, expiration, devIgnore, replyToId } = opts;
     if (!files || files.length === 0) return;
 
     uploadState = {
@@ -103,6 +104,9 @@
     formData.append('is_folder', isFolder ? 'true' : 'false');
     if (isFolder) {
       formData.append('folder_name', folderName);
+    }
+    if (replyToId) {
+      formData.append('reply_to_id', replyToId);
     }
 
     // Append file parts
@@ -310,6 +314,7 @@
     <ChatView
       {currentUser}
       {selectedPeer}
+      {peers}
       {messages}
       onSendMessage={handleSendMessage}
       onSendCode={handleSendCode}

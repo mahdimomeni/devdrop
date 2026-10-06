@@ -17,7 +17,9 @@
     Terminal,
     AlertCircle,
     Info,
-    FileText
+    FileText,
+    Reply,
+    X
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
@@ -27,6 +29,7 @@
   let {
     currentUser,
     selectedPeer,
+    peers = [],
     messages = [],
     onSendMessage,
     onSendCode,
@@ -35,8 +38,13 @@
 
   let textInput = $state('');
   let messagesContainer = $state(null);
+  let textareaElement = $state(null);
   let fileInput = $state(null);
   let folderInput = $state(null);
+
+  // Reply state
+  let replyingTo = $state(null);
+  let highlightedMsgId = $state(null);
 
   // Transfer options
   let expiration = $state('24h');
@@ -78,15 +86,70 @@
     }
   });
 
+  function getSenderDisplayName(senderId) {
+    if (!senderId) return 'Peer';
+    if (senderId === currentUser?.id) return 'You';
+    if (senderId === selectedPeer?.id) return selectedPeer?.display_name || 'Peer';
+    const peer = peers.find((p) => p.id === senderId);
+    return peer?.display_name || 'Peer';
+  }
+
+  function startReply(msg) {
+    replyingTo = msg;
+    tick().then(() => {
+      if (textareaElement) {
+        textareaElement.focus();
+      }
+    });
+  }
+
+  function cancelReply() {
+    replyingTo = null;
+  }
+
+  function scrollToMessage(targetId) {
+    if (!targetId) return;
+    const el = document.getElementById(`msg-${targetId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      highlightedMsgId = targetId;
+      setTimeout(() => {
+        if (highlightedMsgId === targetId) {
+          highlightedMsgId = null;
+        }
+      }, 2000);
+    }
+  }
+
+  function getReplySnippet(replyMsg) {
+    if (!replyMsg) return 'Original message';
+    if (replyMsg.type === 'text') return replyMsg.body;
+    if (replyMsg.type === 'code') {
+      const firstLine = replyMsg.snippet?.code_content?.split('\n')[0] || '';
+      return replyMsg.body ? `${replyMsg.body} — ${firstLine}` : firstLine || 'Code snippet';
+    }
+    if (replyMsg.type === 'file') {
+      return replyMsg.transfer?.file_name || 'File transfer';
+    }
+    return replyMsg.body || 'Original message';
+  }
+
   function handleSendText() {
     const trimmed = textInput.trim();
     if (!trimmed) return;
-    onSendMessage(trimmed);
+    const replyId = replyingTo?.id || null;
+    onSendMessage(trimmed, replyId);
     textInput = '';
+    replyingTo = null;
     scrollToBottom();
   }
 
   function handleKeyDown(e) {
+    if (e.key === 'Escape' && replyingTo) {
+      e.preventDefault();
+      cancelReply();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendText();
@@ -176,7 +239,9 @@
 
   function handleSendCodeFromDrawer(payload) {
     isCodeDrawerOpen = false;
-    onSendCode(payload);
+    const replyId = replyingTo?.id || null;
+    onSendCode({ ...payload, replyToId: replyId });
+    replyingTo = null;
   }
 
   // File & Folder Uploads
@@ -200,13 +265,16 @@
   }
 
   function uploadFileList(files, isFolder, archiveName) {
+    const replyId = replyingTo?.id || null;
     onUploadFiles({
       files,
       isFolder,
       folderName: archiveName,
       expiration,
       devIgnore,
+      replyToId: replyId,
     });
+    replyingTo = null;
   }
 
   // Drag and Drop Handling
@@ -476,16 +544,62 @@
       {#each messages as msg, index (msg.id)}
         {@const isMe = msg.sender_id === currentUser?.id}
         {@const prevSnippet = msg.type === 'code' ? findPreviousSnippet(index) : null}
+        {@const targetReply = msg.reply_to || (msg.reply_to_id ? messages.find((m) => m.id === msg.reply_to_id) : null)}
+        {@const isHighlighted = highlightedMsgId === msg.id}
 
-        <div class="flex flex-col {isMe ? 'items-end' : 'items-start'} group">
-          <!-- Sender Info & Timestamp -->
+        <div
+          id={`msg-${msg.id}`}
+          class="flex flex-col {isMe ? 'items-end' : 'items-start'} group transition-all duration-300 rounded-2xl {isHighlighted
+            ? 'ring-2 ring-cyan-400 bg-cyan-950/40 p-2 shadow-lg shadow-cyan-500/20'
+            : 'p-0.5'}"
+        >
+          <!-- Sender Info, Timestamp & Reply action -->
           <div class="flex items-center gap-2 mb-1 px-1 text-[11px] text-slate-400 font-mono">
             <span class="font-semibold {isMe ? 'text-cyan-400' : 'text-slate-300'}">
-              {isMe ? 'You' : msg.sender_id === selectedPeer?.id ? selectedPeer?.display_name : 'Peer'}
+              {isMe ? 'You' : getSenderDisplayName(msg.sender_id)}
             </span>
             <span>•</span>
             <span>{formatRelativeTime(msg.created_at)}</span>
+
+            <!-- Quick Reply button on hover -->
+            <button
+              onclick={() => startReply(msg)}
+              class="opacity-0 group-hover:opacity-100 transition-opacity ml-1.5 flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 px-1.5 py-0.5 rounded cursor-pointer"
+              title="Reply to this message"
+            >
+              <Reply class="w-3 h-3 text-cyan-400" />
+              <span>Reply</span>
+            </button>
           </div>
+
+          <!-- Quoted Reply Card (if replying to another message) -->
+          {#if targetReply}
+            <button
+              type="button"
+              onclick={() => scrollToMessage(targetReply.id)}
+              class="mb-1.5 max-w-2xl text-left px-3 py-1.5 rounded-xl border-l-3 border-cyan-400 bg-slate-950/80 hover:bg-slate-800/90 text-xs transition-colors cursor-pointer group/quote flex items-start gap-2 shadow-sm"
+              title="Jump to quoted message"
+            >
+              <Reply class="w-3 h-3 text-cyan-400 mt-0.5 flex-shrink-0 group-hover/quote:translate-x-0.5 transition-transform" />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-cyan-300">
+                  <span>{getSenderDisplayName(targetReply.sender_id)}</span>
+                  {#if targetReply.type === 'code'}
+                    <span class="text-[9px] px-1 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/80 uppercase font-mono">
+                      {targetReply.snippet?.language || 'code'}
+                    </span>
+                  {:else if targetReply.type === 'file'}
+                    <span class="text-[9px] px-1 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-800/80 uppercase font-mono">
+                      file
+                    </span>
+                  {/if}
+                </div>
+                <p class="text-[11px] text-slate-300 truncate mt-0.5 font-sans">
+                  {getReplySnippet(targetReply)}
+                </p>
+              </div>
+            </button>
+          {/if}
 
           <!-- Message Body by Type -->
           {#if msg.type === 'text'}
@@ -585,11 +699,53 @@
   <footer class="p-4 bg-slate-950/95 border-t border-slate-800 flex-shrink-0">
     <div class="relative flex flex-col bg-slate-900 border border-slate-700/80 rounded-2xl shadow-xl focus-within:border-cyan-500/80 focus-within:ring-1 focus-within:ring-cyan-500/40 transition-all">
       
+      <!-- Replying Banner -->
+      {#if replyingTo}
+        <div class="flex items-center justify-between px-3.5 py-2 bg-slate-950/90 border-b border-slate-800 rounded-t-2xl animate-in slide-in-from-bottom duration-150 text-xs">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="w-6 h-6 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-800/60 flex items-center justify-center flex-shrink-0">
+              <Reply class="w-3.5 h-3.5" />
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="text-[11px] font-mono text-slate-400">Replying to</span>
+                <span class="text-[11px] font-mono font-bold text-cyan-300">
+                  {getSenderDisplayName(replyingTo.sender_id)}
+                </span>
+                {#if replyingTo.type === 'code'}
+                  <span class="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 uppercase font-mono">
+                    {replyingTo.snippet?.language || 'code'}
+                  </span>
+                {:else if replyingTo.type === 'file'}
+                  <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-800 uppercase font-mono">
+                    file
+                  </span>
+                {/if}
+              </div>
+              <p class="text-[11px] text-slate-400 truncate max-w-md font-sans">
+                {getReplySnippet(replyingTo)}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onclick={cancelReply}
+            class="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            title="Cancel reply (Esc)"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+      {/if}
+
       <!-- Textarea -->
       <textarea
+        bind:this={textareaElement}
         bind:value={textInput}
         onkeydown={handleKeyDown}
-        placeholder={isBroadcast ? "Type message to LAN broadcast (Shift+Enter for new line, Ctrl+V to paste images/code)..." : `Type direct message to ${selectedPeer?.display_name}...`}
+        placeholder={replyingTo
+          ? `Replying to ${getSenderDisplayName(replyingTo.sender_id)}... (Esc to cancel)`
+          : (isBroadcast ? "Type message to LAN broadcast (Shift+Enter for new line, Ctrl+V to paste images/code)..." : `Type direct message to ${selectedPeer?.display_name}...`)}
         rows="2"
         class="w-full bg-transparent text-slate-100 placeholder-slate-500 text-sm p-3.5 focus:outline-none resize-none font-sans"
       ></textarea>

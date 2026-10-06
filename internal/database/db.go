@@ -49,6 +49,8 @@ type Message struct {
 	ReceiverID string       `json:"receiver_id"`
 	Type       string       `json:"type"` // 'text', 'code', 'file'
 	Body       string       `json:"body"`
+	ReplyToID  *string      `json:"reply_to_id,omitempty"`
+	ReplyTo    *Message     `json:"reply_to,omitempty"`
 	CreatedAt  time.Time    `json:"created_at"`
 	Snippet    *CodeSnippet `json:"snippet,omitempty"`
 	Transfer   *Transfer    `json:"transfer,omitempty"`
@@ -97,7 +99,9 @@ func InitDB(dataDir string) (*DB, error) {
 		receiver_id TEXT NOT NULL,
 		type TEXT NOT NULL, -- 'text', 'code', 'file'
 		body TEXT,
-		created_at DATETIME NOT NULL
+		reply_to_id TEXT,
+		created_at DATETIME NOT NULL,
+		FOREIGN KEY(reply_to_id) REFERENCES messages(id) ON DELETE SET NULL
 	);
 
 	CREATE TABLE IF NOT EXISTS code_snippets (
@@ -126,6 +130,9 @@ func InitDB(dataDir string) (*DB, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("failed to create tables: %w", err)
 	}
+
+	// Migrate messages table if upgrading from previous version without reply_to_id
+	_, _ = db.Exec("ALTER TABLE messages ADD COLUMN reply_to_id TEXT;")
 
 	return &DB{db: db}, nil
 }
@@ -222,27 +229,102 @@ func (d *DB) GetAllUsers() ([]User, error) {
 }
 
 // Message Operations
-func (d *DB) SaveTextMessage(id, senderID, receiverID, body string, createdAt time.Time) (*Message, error) {
+func (d *DB) GetMessageByID(id string) (*Message, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.getMessageByIDUnlocked(id)
+}
+
+func (d *DB) getMessageByIDUnlocked(id string) (*Message, error) {
+	query := `
+	SELECT m.id, m.sender_id, m.receiver_id, m.type, m.body, m.reply_to_id, m.created_at,
+	       c.language, c.code_content,
+	       t.file_name, t.file_size, t.file_path, t.is_folder_zip, t.burn_on_read, t.expires_at, t.download_count
+	FROM messages m
+	LEFT JOIN code_snippets c ON m.id = c.message_id
+	LEFT JOIN transfers t ON m.id = t.message_id
+	WHERE m.id = ?;
+	`
+	var m Message
+	var (
+		replyToID           sql.NullString
+		cLang, cContent     sql.NullString
+		tName, tPath        sql.NullString
+		tSize               sql.NullInt64
+		tIsZip, tBurnOnRead sql.NullBool
+		tExpiresAt          sql.NullTime
+		tDownloadCount      sql.NullInt64
+	)
+	err := d.db.QueryRow(query, id).Scan(
+		&m.ID, &m.SenderID, &m.ReceiverID, &m.Type, &m.Body, &replyToID, &m.CreatedAt,
+		&cLang, &cContent,
+		&tName, &tSize, &tPath, &tIsZip, &tBurnOnRead, &tExpiresAt, &tDownloadCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if replyToID.Valid && replyToID.String != "" {
+		m.ReplyToID = &replyToID.String
+	}
+	if m.Type == "code" && cLang.Valid {
+		m.Snippet = &CodeSnippet{
+			MessageID:   m.ID,
+			Language:    cLang.String,
+			CodeContent: cContent.String,
+		}
+	}
+	if m.Type == "file" && tName.Valid {
+		now := time.Now().UTC()
+		isExpired := tExpiresAt.Valid && now.After(tExpiresAt.Time)
+		m.Transfer = &Transfer{
+			MessageID:     m.ID,
+			FileName:      tName.String,
+			FileSize:      tSize.Int64,
+			FilePath:      tPath.String,
+			IsFolderZip:   tIsZip.Bool,
+			BurnOnRead:    tBurnOnRead.Bool,
+			ExpiresAt:     tExpiresAt.Time,
+			DownloadCount: int(tDownloadCount.Int64),
+			IsExpired:     isExpired,
+		}
+	}
+	return &m, nil
+}
+
+func (d *DB) SaveTextMessage(id, senderID, receiverID, body string, replyToID *string, createdAt time.Time) (*Message, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	query := `INSERT INTO messages (id, sender_id, receiver_id, type, body, created_at) VALUES (?, ?, ?, 'text', ?, ?);`
-	_, err := d.db.Exec(query, id, senderID, receiverID, body, createdAt)
+	query := `INSERT INTO messages (id, sender_id, receiver_id, type, body, reply_to_id, created_at) VALUES (?, ?, ?, 'text', ?, ?, ?);`
+	var replyIDVal any
+	if replyToID != nil && *replyToID != "" {
+		replyIDVal = *replyToID
+	}
+	_, err := d.db.Exec(query, id, senderID, receiverID, body, replyIDVal, createdAt)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Message{
+	msg := &Message{
 		ID:         id,
 		SenderID:   senderID,
 		ReceiverID: receiverID,
 		Type:       "text",
 		Body:       body,
+		ReplyToID:  replyToID,
 		CreatedAt:  createdAt,
-	}, nil
+	}
+
+	if replyToID != nil && *replyToID != "" {
+		if rm, err := d.getMessageByIDUnlocked(*replyToID); err == nil {
+			msg.ReplyTo = rm
+		}
+	}
+
+	return msg, nil
 }
 
-func (d *DB) SaveCodeMessage(id, senderID, receiverID, body, language, codeContent string, createdAt time.Time) (*Message, error) {
+func (d *DB) SaveCodeMessage(id, senderID, receiverID, body, language, codeContent string, replyToID *string, createdAt time.Time) (*Message, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -252,8 +334,12 @@ func (d *DB) SaveCodeMessage(id, senderID, receiverID, body, language, codeConte
 	}
 	defer tx.Rollback()
 
-	msgQuery := `INSERT INTO messages (id, sender_id, receiver_id, type, body, created_at) VALUES (?, ?, ?, 'code', ?, ?);`
-	if _, err := tx.Exec(msgQuery, id, senderID, receiverID, body, createdAt); err != nil {
+	msgQuery := `INSERT INTO messages (id, sender_id, receiver_id, type, body, reply_to_id, created_at) VALUES (?, ?, ?, 'code', ?, ?, ?);`
+	var replyIDVal any
+	if replyToID != nil && *replyToID != "" {
+		replyIDVal = *replyToID
+	}
+	if _, err := tx.Exec(msgQuery, id, senderID, receiverID, body, replyIDVal, createdAt); err != nil {
 		return nil, err
 	}
 
@@ -266,19 +352,28 @@ func (d *DB) SaveCodeMessage(id, senderID, receiverID, body, language, codeConte
 		return nil, err
 	}
 
-	return &Message{
+	msg := &Message{
 		ID:         id,
 		SenderID:   senderID,
 		ReceiverID: receiverID,
 		Type:       "code",
 		Body:       body,
+		ReplyToID:  replyToID,
 		CreatedAt:  createdAt,
 		Snippet: &CodeSnippet{
 			MessageID:   id,
 			Language:    language,
 			CodeContent: codeContent,
 		},
-	}, nil
+	}
+
+	if replyToID != nil && *replyToID != "" {
+		if rm, err := d.getMessageByIDUnlocked(*replyToID); err == nil {
+			msg.ReplyTo = rm
+		}
+	}
+
+	return msg, nil
 }
 
 func (d *DB) SaveTransferMessage(
@@ -286,6 +381,7 @@ func (d *DB) SaveTransferMessage(
 	fileSize int64, filePath string,
 	isFolderZip, burnOnRead bool,
 	expiresAt, createdAt time.Time,
+	replyToID *string,
 ) (*Message, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -296,8 +392,12 @@ func (d *DB) SaveTransferMessage(
 	}
 	defer tx.Rollback()
 
-	msgQuery := `INSERT INTO messages (id, sender_id, receiver_id, type, body, created_at) VALUES (?, ?, ?, 'file', ?, ?);`
-	if _, err := tx.Exec(msgQuery, id, senderID, receiverID, body, createdAt); err != nil {
+	msgQuery := `INSERT INTO messages (id, sender_id, receiver_id, type, body, reply_to_id, created_at) VALUES (?, ?, ?, 'file', ?, ?, ?);`
+	var replyIDVal any
+	if replyToID != nil && *replyToID != "" {
+		replyIDVal = *replyToID
+	}
+	if _, err := tx.Exec(msgQuery, id, senderID, receiverID, body, replyIDVal, createdAt); err != nil {
 		return nil, err
 	}
 
@@ -313,12 +413,13 @@ func (d *DB) SaveTransferMessage(
 		return nil, err
 	}
 
-	return &Message{
+	msg := &Message{
 		ID:         id,
 		SenderID:   senderID,
 		ReceiverID: receiverID,
 		Type:       "file",
 		Body:       body,
+		ReplyToID:  replyToID,
 		CreatedAt:  createdAt,
 		Transfer: &Transfer{
 			MessageID:     id,
@@ -330,7 +431,15 @@ func (d *DB) SaveTransferMessage(
 			ExpiresAt:     expiresAt,
 			DownloadCount: 0,
 		},
-	}, nil
+	}
+
+	if replyToID != nil && *replyToID != "" {
+		if rm, err := d.getMessageByIDUnlocked(*replyToID); err == nil {
+			msg.ReplyTo = rm
+		}
+	}
+
+	return msg, nil
 }
 
 func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
@@ -346,27 +455,30 @@ func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
 	var rows *sql.Rows
 	var err error
 
-	if userB == "broadcast" || userB == "all" || userB == "" {
-		query = `
-		SELECT m.id, m.sender_id, m.receiver_id, m.type, m.body, m.created_at,
+	selectCols := `
+		SELECT m.id, m.sender_id, m.receiver_id, m.type, m.body, m.reply_to_id, m.created_at,
 		       c.language, c.code_content,
-		       t.file_name, t.file_size, t.file_path, t.is_folder_zip, t.burn_on_read, t.expires_at, t.download_count
+		       t.file_name, t.file_size, t.file_path, t.is_folder_zip, t.burn_on_read, t.expires_at, t.download_count,
+		       rm.id, rm.sender_id, rm.receiver_id, rm.type, rm.body, rm.created_at,
+		       rc.language, rc.code_content,
+		       rt.file_name, rt.file_size, rt.file_path, rt.is_folder_zip, rt.burn_on_read, rt.expires_at, rt.download_count
 		FROM messages m
 		LEFT JOIN code_snippets c ON m.id = c.message_id
 		LEFT JOIN transfers t ON m.id = t.message_id
+		LEFT JOIN messages rm ON m.reply_to_id = rm.id
+		LEFT JOIN code_snippets rc ON rm.id = rc.message_id
+		LEFT JOIN transfers rt ON rm.id = rt.message_id
+	`
+
+	if userB == "broadcast" || userB == "all" || userB == "" {
+		query = selectCols + `
 		WHERE m.receiver_id = 'all' OR m.receiver_id = 'broadcast'
 		ORDER BY m.created_at ASC
 		LIMIT ?;
 		`
 		rows, err = d.db.Query(query, limit)
 	} else {
-		query = `
-		SELECT m.id, m.sender_id, m.receiver_id, m.type, m.body, m.created_at,
-		       c.language, c.code_content,
-		       t.file_name, t.file_size, t.file_path, t.is_folder_zip, t.burn_on_read, t.expires_at, t.download_count
-		FROM messages m
-		LEFT JOIN code_snippets c ON m.id = c.message_id
-		LEFT JOIN transfers t ON m.id = t.message_id
+		query = selectCols + `
 		WHERE (m.sender_id = ? AND m.receiver_id = ?)
 		   OR (m.sender_id = ? AND m.receiver_id = ?)
 		ORDER BY m.created_at ASC
@@ -385,20 +497,37 @@ func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
 	for rows.Next() {
 		var m Message
 		var (
-			cLang, cContent                         sql.NullString
-			tName, tPath                            sql.NullString
-			tSize                                   sql.NullInt64
-			tIsZip, tBurnOnRead                     sql.NullBool
-			tExpiresAt                              sql.NullTime
-			tDownloadCount                          sql.NullInt64
+			mReplyToID          sql.NullString
+			cLang, cContent     sql.NullString
+			tName, tPath        sql.NullString
+			tSize               sql.NullInt64
+			tIsZip, tBurnOnRead sql.NullBool
+			tExpiresAt          sql.NullTime
+			tDownloadCount      sql.NullInt64
+
+			rmID, rmSender, rmReceiver, rmType, rmBody sql.NullString
+			rmCreatedAt                                sql.NullTime
+			rcLang, rcContent                          sql.NullString
+			rtName, rtPath                             sql.NullString
+			rtSize                                     sql.NullInt64
+			rtIsZip, rtBurnOnRead                      sql.NullBool
+			rtExpiresAt                                sql.NullTime
+			rtDownloadCount                            sql.NullInt64
 		)
 
 		if err := rows.Scan(
-			&m.ID, &m.SenderID, &m.ReceiverID, &m.Type, &m.Body, &m.CreatedAt,
+			&m.ID, &m.SenderID, &m.ReceiverID, &m.Type, &m.Body, &mReplyToID, &m.CreatedAt,
 			&cLang, &cContent,
 			&tName, &tSize, &tPath, &tIsZip, &tBurnOnRead, &tExpiresAt, &tDownloadCount,
+			&rmID, &rmSender, &rmReceiver, &rmType, &rmBody, &rmCreatedAt,
+			&rcLang, &rcContent,
+			&rtName, &rtSize, &rtPath, &rtIsZip, &rtBurnOnRead, &rtExpiresAt, &rtDownloadCount,
 		); err != nil {
 			return nil, err
+		}
+
+		if mReplyToID.Valid && mReplyToID.String != "" {
+			m.ReplyToID = &mReplyToID.String
 		}
 
 		if m.Type == "code" && cLang.Valid {
@@ -422,6 +551,39 @@ func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
 				DownloadCount: int(tDownloadCount.Int64),
 				IsExpired:     isExpired,
 			}
+		}
+
+		if rmID.Valid && rmID.String != "" {
+			replyMsg := &Message{
+				ID:         rmID.String,
+				SenderID:   rmSender.String,
+				ReceiverID: rmReceiver.String,
+				Type:       rmType.String,
+				Body:       rmBody.String,
+				CreatedAt:  rmCreatedAt.Time,
+			}
+			if replyMsg.Type == "code" && rcLang.Valid {
+				replyMsg.Snippet = &CodeSnippet{
+					MessageID:   replyMsg.ID,
+					Language:    rcLang.String,
+					CodeContent: rcContent.String,
+				}
+			}
+			if replyMsg.Type == "file" && rtName.Valid {
+				replyExpired := rtExpiresAt.Valid && now.After(rtExpiresAt.Time)
+				replyMsg.Transfer = &Transfer{
+					MessageID:     replyMsg.ID,
+					FileName:      rtName.String,
+					FileSize:      rtSize.Int64,
+					FilePath:      rtPath.String,
+					IsFolderZip:   rtIsZip.Bool,
+					BurnOnRead:    rtBurnOnRead.Bool,
+					ExpiresAt:     rtExpiresAt.Time,
+					DownloadCount: int(rtDownloadCount.Int64),
+					IsExpired:     replyExpired,
+				}
+			}
+			m.ReplyTo = replyMsg
 		}
 
 		messages = append(messages, m)

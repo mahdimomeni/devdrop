@@ -141,33 +141,39 @@ export async function getMessages(userId, peerId) {
   return res.json();
 }
 
-export async function sendTextMessage(senderId, receiverId, body) {
+export async function sendTextMessage(senderId, receiverId, body, replyToId = null) {
+  const payload = {
+    sender_id: senderId,
+    receiver_id: receiverId,
+    type: 'text',
+    body,
+  };
+  if (replyToId) payload.reply_to_id = replyToId;
+
   const res = await fetch('/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sender_id: senderId,
-      receiver_id: receiverId,
-      type: 'text',
-      body,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error('Failed to send message');
   return res.json();
 }
 
-export async function sendCodeMessage(senderId, receiverId, body, language, codeContent) {
+export async function sendCodeMessage(senderId, receiverId, body, language, codeContent, replyToId = null) {
+  const payload = {
+    sender_id: senderId,
+    receiver_id: receiverId,
+    type: 'code',
+    body,
+    language,
+    code_content: codeContent,
+  };
+  if (replyToId) payload.reply_to_id = replyToId;
+
   const res = await fetch('/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sender_id: senderId,
-      receiver_id: receiverId,
-      type: 'code',
-      body,
-      language,
-      code_content: codeContent,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error('Failed to send code');
   return res.json();

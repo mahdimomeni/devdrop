@@ -136,6 +136,7 @@ func (m *Manager) HandleUpload(r *http.Request) (*UploadResult, error) {
 		senderID    string
 		receiverID  string
 		body        string
+		replyToID   *string
 		expiration  = "24h"
 		burnOnRead  = false
 		devIgnore   = true
@@ -187,6 +188,11 @@ func (m *Manager) HandleUpload(r *http.Request) (*UploadResult, error) {
 				receiverID = strVal
 			case "body":
 				body = strVal
+			case "reply_to_id":
+				if strVal != "" {
+					v := strVal
+					replyToID = &v
+				}
 			case "expiration":
 				expiration = strVal
 			case "burn_on_read":
@@ -317,7 +323,7 @@ func (m *Manager) HandleUpload(r *http.Request) (*UploadResult, error) {
 	msg, err := m.db.SaveTransferMessage(
 		msgID, senderID, receiverID, body, outFileName,
 		totalBytes, outFilePath, isFolder, burnOnRead,
-		expiresAt, createdAt,
+		expiresAt, createdAt, replyToID,
 	)
 	if err != nil {
 		_ = os.Remove(outFilePath)

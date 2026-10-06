@@ -157,12 +157,13 @@ func (s *ServerHandler) handleGetMessages(w http.ResponseWriter, r *http.Request
 
 func (s *ServerHandler) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SenderID    string `json:"sender_id"`
-		ReceiverID  string `json:"receiver_id"`
-		Type        string `json:"type"` // "text" or "code"
-		Body        string `json:"body"`
-		Language    string `json:"language,omitempty"`
-		CodeContent string `json:"code_content,omitempty"`
+		SenderID    string  `json:"sender_id"`
+		ReceiverID  string  `json:"receiver_id"`
+		Type        string  `json:"type"` // "text" or "code"
+		Body        string  `json:"body"`
+		ReplyToID   *string `json:"reply_to_id,omitempty"`
+		Language    string  `json:"language,omitempty"`
+		CodeContent string  `json:"code_content,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -173,6 +174,10 @@ func (s *ServerHandler) handleSendMessage(w http.ResponseWriter, r *http.Request
 	if req.SenderID == "" || req.ReceiverID == "" {
 		http.Error(w, "sender_id and receiver_id are required", http.StatusBadRequest)
 		return
+	}
+
+	if req.ReplyToID != nil && strings.TrimSpace(*req.ReplyToID) == "" {
+		req.ReplyToID = nil
 	}
 
 	msgID := uuid.New().String()
@@ -189,13 +194,13 @@ func (s *ServerHandler) handleSendMessage(w http.ResponseWriter, r *http.Request
 		if req.Language == "" {
 			req.Language = "plaintext"
 		}
-		msg, err = s.db.SaveCodeMessage(msgID, req.SenderID, req.ReceiverID, req.Body, req.Language, req.CodeContent, createdAt)
+		msg, err = s.db.SaveCodeMessage(msgID, req.SenderID, req.ReceiverID, req.Body, req.Language, req.CodeContent, req.ReplyToID, createdAt)
 	} else {
 		if strings.TrimSpace(req.Body) == "" {
 			http.Error(w, "body cannot be empty", http.StatusBadRequest)
 			return
 		}
-		msg, err = s.db.SaveTextMessage(msgID, req.SenderID, req.ReceiverID, req.Body, createdAt)
+		msg, err = s.db.SaveTextMessage(msgID, req.SenderID, req.ReceiverID, req.Body, req.ReplyToID, createdAt)
 	}
 
 	if err != nil {
