@@ -25,7 +25,10 @@
     ChevronUp,
     ChevronLeft,
     Eye,
-    AtSign
+    AtSign,
+    Bell,
+    BellRing,
+    BellOff
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
@@ -49,6 +52,8 @@
     hasMore = false,
     isLoadingMessages = false,
     isLoadingOlder = false,
+    notificationSettings = null,
+    onOpenNotificationSettings = null,
     onLoadOlder,
     onSendMessage,
     onSendCode,
@@ -837,8 +842,30 @@
       {/if}
     </div>
 
-    <!-- Right header stats -->
+    <!-- Right header stats & notification trigger -->
     <div class="flex items-center gap-2 sm:gap-3 text-xs text-slate-400 font-mono flex-shrink-0">
+      {#if onOpenNotificationSettings}
+        <button
+          type="button"
+          onclick={onOpenNotificationSettings}
+          class="relative flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-750 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors cursor-pointer"
+          title="Notification Settings"
+          aria-label="Notification Settings"
+        >
+          {#if !notificationSettings?.enabled}
+            <BellOff class="w-3.5 h-3.5 text-slate-500" />
+          {:else if !notificationSettings?.soundEnabled}
+            <Bell class="w-3.5 h-3.5 text-slate-400" />
+          {:else}
+            <BellRing class="w-3.5 h-3.5 text-cyan-400" />
+          {/if}
+          <span class="hidden sm:inline text-[11px]">Alerts</span>
+          {#if notificationSettings?.enabled && notificationSettings?.desktopEnabled}
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+          {/if}
+        </button>
+      {/if}
+
       <div class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 rounded-lg border border-slate-800">
         <Terminal class="w-3.5 h-3.5 text-cyan-400" />
         <span>DevDrop Channel</span>

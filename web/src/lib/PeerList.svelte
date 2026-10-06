@@ -11,7 +11,10 @@
     Sparkles,
     Circle,
     UserCheck,
-    MessageSquare
+    MessageSquare,
+    Bell,
+    BellRing,
+    BellOff
   } from 'lucide-svelte';
   import { formatRelativeTime } from './api.js';
 
@@ -20,6 +23,8 @@
     peers = [],
     selectedPeerId = 'broadcast',
     unreadCounts = {},
+    notificationSettings = null,
+    onOpenNotificationSettings = null,
     onSelectPeer,
     onUpdateName,
     onCloseMobile = null,
@@ -80,10 +85,27 @@
           DevDrop LAN Node
         </span>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5 sm:gap-2">
         <span class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
           {onlineCount} {onlineCount === 1 ? 'Peer' : 'Peers'} Online
         </span>
+        {#if onOpenNotificationSettings}
+          <button
+            type="button"
+            onclick={onOpenNotificationSettings}
+            class="p-1 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-md border border-slate-800/80 hover:border-cyan-800/60 transition-colors cursor-pointer"
+            title="Notification Settings"
+            aria-label="Notification Settings"
+          >
+            {#if !notificationSettings?.enabled}
+              <BellOff class="w-3.5 h-3.5 text-slate-500" />
+            {:else if !notificationSettings?.soundEnabled}
+              <Bell class="w-3.5 h-3.5 text-slate-400" />
+            {:else}
+              <BellRing class="w-3.5 h-3.5 text-cyan-400" />
+            {/if}
+          </button>
+        {/if}
         {#if onCloseMobile}
           <button
             type="button"

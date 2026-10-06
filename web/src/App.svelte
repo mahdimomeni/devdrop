@@ -13,7 +13,26 @@
   } from './lib/api.js';
   import PeerList from './lib/PeerList.svelte';
   import ChatView from './lib/ChatView.svelte';
-  import { Wifi, WifiOff, AlertCircle, CheckCircle2, Loader2, AtSign } from 'lucide-svelte';
+  import NotificationModal from './lib/NotificationModal.svelte';
+  import {
+    loadNotificationSettings,
+    saveNotificationSettings,
+    playNotificationChime,
+    showDesktopNotification,
+    shouldNotify,
+    updateDocumentTitle
+  } from './lib/notificationService.js';
+  import {
+    Wifi,
+    WifiOff,
+    AlertCircle,
+    CheckCircle2,
+    Loader2,
+    AtSign,
+    BellRing,
+    MessageSquare,
+    X
+  } from 'lucide-svelte';
   import { isUserMentioned } from './lib/mentionUtils.js';
 
   let userId = getUserId();
@@ -27,6 +46,9 @@
   let unreadCounts = $state({});
   let isWsConnected = $state(false);
   let mobileActiveView = $state('chat'); // 'peers' | 'chat'
+  let isAppFocused = $state(typeof document !== 'undefined' ? document.hasFocus() : true);
+  let notificationSettings = $state(loadNotificationSettings());
+  let isNotificationModalOpen = $state(false);
 
   let totalUnreads = $derived.by(() => {
     return Object.entries(unreadCounts).reduce((acc, [key, count]) => {
@@ -43,15 +65,25 @@
   });
 
   // Toast notification
-  let toast = $state(null); // { message, type: 'success' | 'error' }
+  let toast = $state(null); // { message, type: 'success' | 'error' | 'mention' | 'notification', title, subtitle, senderName, targetPeerId, onAction }
 
   let socket = null;
 
-  function showToast(message, type = 'success') {
-    toast = { message, type };
+  function showToast(message, type = 'success', extra = {}) {
+    toast = { message, type, ...extra };
+    const duration = type === 'notification' || type === 'mention' ? 5500 : 3500;
     setTimeout(() => {
       if (toast?.message === message) toast = null;
-    }, 3500);
+    }, duration);
+  }
+
+  function handleUpdateNotificationSettings(newSettings) {
+    notificationSettings = newSettings;
+    saveNotificationSettings(newSettings);
+  }
+
+  function handleOpenNotificationSettings() {
+    isNotificationModalOpen = true;
   }
 
   // Find currently selected peer object
@@ -258,13 +290,51 @@
             };
           }
 
-          // Trigger mention alert toast if another peer mentioned me
-          if (newMsg.sender_id !== userId && isUserMentioned(newMsg.body, currentUser, peers)) {
-            const senderName = peers.find((p) => p.id === newMsg.sender_id)?.display_name || 'A peer';
-            const preview = newMsg.body
-              ? (newMsg.body.length > 50 ? newMsg.body.slice(0, 50) + '...' : newMsg.body)
-              : 'mentioned you';
-            showToast(`@${senderName} mentioned you: "${preview}"`, 'mention');
+          // Evaluate notification criteria
+          const notif = shouldNotify(newMsg, {
+            userId,
+            currentUser,
+            peers,
+            selectedPeerId,
+            isAppFocused,
+            settings: notificationSettings,
+          });
+
+          if (notif.shouldNotify) {
+            // 1. Synthesize audio chime
+            if (notif.shouldPlaySound) {
+              playNotificationChime(notif.details.isMention ? 'mention' : 'default');
+            }
+
+            // 2. Desktop OS notification banner
+            if (notif.shouldShowDesktop) {
+              showDesktopNotification({
+                title: notif.details.title,
+                body: notif.details.body,
+                tag: `msg-${newMsg.id}`,
+                onClick: () => {
+                  loadConversation(notif.targetPeerId);
+                  mobileActiveView = 'chat';
+                },
+              });
+            }
+
+            // 3. In-App Toast Alert
+            if (notif.shouldShowInAppToast) {
+              showToast(notif.details.body, notif.details.isMention ? 'mention' : 'notification', {
+                title: notif.details.title,
+                subtitle: notif.details.subtitle,
+                senderName: notif.details.senderName,
+                targetPeerId: notif.targetPeerId,
+                onAction: () => {
+                  loadConversation(notif.targetPeerId);
+                  mobileActiveView = 'chat';
+                },
+              });
+            }
+
+            // 4. Update tab title
+            updateDocumentTitle(totalUnreads, notif.details.senderName);
           }
         }
         break;
@@ -286,7 +356,37 @@
     }
   }
 
+  $effect(() => {
+    updateDocumentTitle(totalUnreads);
+  });
+
+  let cleanupFocusListeners = null;
+
   onMount(async () => {
+    const handleFocus = () => {
+      isAppFocused = true;
+      updateDocumentTitle(totalUnreads);
+    };
+    const handleBlur = () => {
+      isAppFocused = false;
+    };
+    const handleVisibility = () => {
+      isAppFocused = !document.hidden && document.hasFocus();
+      if (isAppFocused) {
+        updateDocumentTitle(totalUnreads);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    cleanupFocusListeners = () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+
     // 1. Fetch initial profile
     try {
       const prof = await getProfile(userId);
@@ -311,6 +411,7 @@
   });
 
   onDestroy(() => {
+    if (cleanupFocusListeners) cleanupFocusListeners();
     if (socket) socket.destroy();
   });
 </script>
@@ -347,17 +448,96 @@
 
   <!-- Floating Toast Alert -->
   {#if toast}
-    <div class="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-50 flex items-center gap-2.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border shadow-2xl text-xs font-mono animate-in fade-in slide-in-from-bottom-2 duration-150 {toast.type === 'error' ? 'bg-rose-950 border-rose-800 text-rose-200' : toast.type === 'mention' ? 'bg-amber-950/95 border-amber-500/70 text-amber-200 ring-1 ring-amber-500/30 shadow-amber-500/10' : 'bg-slate-900 border-cyan-500/50 text-slate-100'} max-w-sm mx-auto sm:mx-0">
-      {#if toast.type === 'error'}
-        <AlertCircle class="w-4 h-4 text-rose-400 flex-shrink-0" />
-      {:else if toast.type === 'mention'}
-        <AtSign class="w-4 h-4 text-amber-400 flex-shrink-0 animate-bounce" />
-      {:else}
-        <CheckCircle2 class="w-4 h-4 text-emerald-400 flex-shrink-0" />
-      {/if}
-      <span class="truncate">{toast.message}</span>
-    </div>
+    {#if toast.type === 'notification' || (toast.type === 'mention' && toast.targetPeerId)}
+      <div
+        class="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-50 flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border shadow-2xl text-xs font-mono animate-in fade-in slide-in-from-bottom-3 duration-200 bg-slate-900/95 backdrop-blur-md {toast.type === 'mention' ? 'border-amber-500/80 ring-1 ring-amber-500/30 shadow-amber-500/10' : 'border-cyan-500/60 ring-1 ring-cyan-500/20 shadow-cyan-500/10'} text-slate-100 max-w-sm w-full mx-auto sm:mx-0"
+      >
+        <div class="p-2 rounded-lg {toast.type === 'mention' ? 'bg-amber-500/20 text-amber-400' : 'bg-cyan-500/20 text-cyan-400'} flex-shrink-0 mt-0.5">
+          {#if toast.type === 'mention'}
+            <AtSign class="w-4 h-4 animate-bounce" />
+          {:else}
+            <BellRing class="w-4 h-4 animate-pulse" />
+          {/if}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between gap-1 mb-0.5">
+            <span class="font-bold text-slate-100 truncate text-[11px] sm:text-xs">
+              {toast.title || toast.senderName || 'New Message'}
+            </span>
+            {#if toast.subtitle}
+              <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold {toast.type === 'mention' ? 'bg-amber-950 text-amber-300 border border-amber-800/60' : 'bg-cyan-950 text-cyan-300 border border-cyan-800/60'}">
+                {toast.subtitle}
+              </span>
+            {/if}
+          </div>
+          <p class="text-[11px] text-slate-300 line-clamp-2 leading-tight">
+            {toast.message}
+          </p>
+          {#if toast.onAction}
+            <div class="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onclick={() => {
+                  toast.onAction();
+                  toast = null;
+                }}
+                class="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-[10px] font-bold transition-colors cursor-pointer"
+              >
+                Open Chat
+              </button>
+              <button
+                type="button"
+                onclick={() => (toast = null)}
+                class="px-2 py-1 text-slate-400 hover:text-white text-[10px] transition-colors cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          {/if}
+        </div>
+        <button
+          type="button"
+          onclick={() => (toast = null)}
+          class="text-slate-400 hover:text-white p-0.5 rounded transition-colors cursor-pointer flex-shrink-0"
+          aria-label="Dismiss alert"
+        >
+          <X class="w-3.5 h-3.5" />
+        </button>
+      </div>
+    {:else}
+      <!-- Standard small alert toast -->
+      <div class="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-50 flex items-center gap-2.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border shadow-2xl text-xs font-mono animate-in fade-in slide-in-from-bottom-2 duration-150 {toast.type === 'error' ? 'bg-rose-950 border-rose-800 text-rose-200' : toast.type === 'mention' ? 'bg-amber-950/95 border-amber-500/70 text-amber-200 ring-1 ring-amber-500/30 shadow-amber-500/10' : 'bg-slate-900 border-cyan-500/50 text-slate-100'} max-w-sm mx-auto sm:mx-0">
+        {#if toast.type === 'error'}
+          <AlertCircle class="w-4 h-4 text-rose-400 flex-shrink-0" />
+        {:else if toast.type === 'mention'}
+          <AtSign class="w-4 h-4 text-amber-400 flex-shrink-0 animate-bounce" />
+        {:else}
+          <CheckCircle2 class="w-4 h-4 text-emerald-400 flex-shrink-0" />
+        {/if}
+        <span class="truncate">{toast.message}</span>
+      </div>
+    {/if}
   {/if}
+
+  <!-- Notification Settings Modal -->
+  <NotificationModal
+    isOpen={isNotificationModalOpen}
+    settings={notificationSettings}
+    onUpdateSettings={handleUpdateNotificationSettings}
+    onClose={() => (isNotificationModalOpen = false)}
+    onTestNotification={() => {
+      showToast('This is a test notification from DevDrop!', 'notification', {
+        title: 'DevDrop Notification Test',
+        subtitle: 'Test Banner',
+        senderName: 'DevDrop Node',
+        targetPeerId: selectedPeerId,
+        onAction: () => {
+          loadConversation(selectedPeerId);
+          mobileActiveView = 'chat';
+        },
+      });
+    }}
+  />
 
   <!-- Main App Layout -->
   <div class="flex-1 flex overflow-hidden relative min-h-0 w-full">
@@ -368,6 +548,8 @@
         {peers}
         {selectedPeerId}
         {unreadCounts}
+        {notificationSettings}
+        onOpenNotificationSettings={handleOpenNotificationSettings}
         onSelectPeer={(id) => {
           loadConversation(id);
           mobileActiveView = 'chat';
@@ -387,6 +569,8 @@
         {hasMore}
         {isLoadingMessages}
         {isLoadingOlder}
+        {notificationSettings}
+        onOpenNotificationSettings={handleOpenNotificationSettings}
         onLoadOlder={handleLoadOlder}
         onSendMessage={handleSendMessage}
         onSendCode={handleSendCode}
