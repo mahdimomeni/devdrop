@@ -229,7 +229,7 @@
     <input
       type="text"
       bind:value={comment}
-      placeholder="Snippet note or comment (optional)..."
+      placeholder="Snippet note or comment (e.g. cc @HyperGopher)..."
       class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-sans"
     />
   </div>

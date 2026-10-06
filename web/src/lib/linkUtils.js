@@ -1,7 +1,7 @@
 // Utility functions for link extraction, URL detection, and tokenizing message text
 
 // Regex to detect HTTP/HTTPS and www URLs
-const URL_REGEX = /(?:https?:\/\/|www\.)[^\s<>'"`]+/gi;
+export const URL_REGEX = /(?:https?:\/\/|www\.)[^\s<>'"`]+/gi;
 
 /**
  * Strips trailing sentence punctuation from URLs while preserving balanced parentheses.
@@ -87,60 +87,6 @@ export function extractFirstUrl(text) {
   return urls.length > 0 ? urls[0] : null;
 }
 
-/**
- * Splits text into segments of plaintext and clickable links.
- * Returns an array of:
- * - { type: 'text', text: string }
- * - { type: 'link', href: string, text: string }
- */
-export function parseMessageSegments(text) {
-  if (!text) return [];
+// Re-export message segment parser and mention check for convenience
+export { parseMessageSegments, isUserMentioned } from './mentionUtils.js';
 
-  const segments = [];
-  let lastIndex = 0;
-  const regex = new RegExp(URL_REGEX.source, 'gi');
-
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    const matchStart = match.index;
-    const matchRaw = match[0];
-
-    // Push preceding text if any
-    if (matchStart > lastIndex) {
-      segments.push({
-        type: 'text',
-        text: text.slice(lastIndex, matchStart),
-      });
-    }
-
-    // Clean trailing punctuation from URL match
-    const { url: cleanedUrl, trailing } = cleanTrailingPunctuation(matchRaw);
-
-    if (cleanedUrl) {
-      segments.push({
-        type: 'link',
-        href: normalizeHref(cleanedUrl),
-        text: cleanedUrl,
-      });
-    }
-
-    if (trailing) {
-      segments.push({
-        type: 'text',
-        text: trailing,
-      });
-    }
-
-    lastIndex = matchStart + matchRaw.length;
-  }
-
-  // Push remaining text
-  if (lastIndex < text.length) {
-    segments.push({
-      type: 'text',
-      text: text.slice(lastIndex),
-    });
-  }
-
-  return segments;
-}

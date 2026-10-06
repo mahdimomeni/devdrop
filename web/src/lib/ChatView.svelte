@@ -24,7 +24,8 @@
     ChevronDown,
     ChevronUp,
     ChevronLeft,
-    Eye
+    Eye,
+    AtSign
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
@@ -32,7 +33,13 @@
   import DiffModal from './DiffModal.svelte';
   import LinkPreviewCard from './LinkPreviewCard.svelte';
   import { highlightCodeLines, normalizeLang, renderMarkdown } from './syntaxHighlight.js';
-  import { parseMessageSegments, extractFirstUrl } from './linkUtils.js';
+  import { extractFirstUrl } from './linkUtils.js';
+  import {
+    parseMessageSegments,
+    isUserMentioned,
+    extractMentionContext,
+    filterMentionCandidates
+  } from './mentionUtils.js';
 
   let {
     currentUser,
@@ -48,6 +55,7 @@
     onUploadFiles,
     onBackToPeers = null,
     totalUnreadCount = 0,
+    onSelectPeer = null,
   } = $props();
 
   let textInput = $state('');
@@ -55,6 +63,17 @@
   let textareaElement = $state(null);
   let fileInput = $state(null);
   let folderInput = $state(null);
+
+  // Mention Autocomplete state
+  let mentionMenuOpen = $state(false);
+  let mentionQuery = $state('');
+  let mentionAtIndex = $state(-1);
+  let selectedMentionIndex = $state(0);
+
+  let mentionCandidates = $derived.by(() => {
+    if (!mentionMenuOpen) return [];
+    return filterMentionCandidates(peers, currentUser, mentionQuery);
+  });
 
   // Reply state
   let replyingTo = $state(null);
@@ -339,10 +358,122 @@
     onSendMessage(trimmed, replyId);
     textInput = '';
     replyingTo = null;
+    mentionMenuOpen = false;
     scrollToBottom();
   }
 
+  function updateMentionContext() {
+    if (!textareaElement) {
+      mentionMenuOpen = false;
+      return;
+    }
+    const cursorPos = textareaElement.selectionStart;
+    const ctx = extractMentionContext(textInput, cursorPos);
+    if (ctx.isOpen) {
+      mentionMenuOpen = true;
+      mentionQuery = ctx.query;
+      mentionAtIndex = ctx.atIndex;
+      selectedMentionIndex = 0;
+    } else {
+      mentionMenuOpen = false;
+      mentionAtIndex = -1;
+    }
+  }
+
+  function applyMention(item) {
+    if (!item || !textareaElement) return;
+    const nameToInsert = item.name;
+    const before = textInput.slice(0, mentionAtIndex);
+    const after = textInput.slice(textareaElement.selectionStart);
+    const inserted = `@${nameToInsert} `;
+    textInput = before + inserted + after;
+    mentionMenuOpen = false;
+
+    tick().then(() => {
+      if (textareaElement) {
+        const newPos = before.length + inserted.length;
+        textareaElement.focus();
+        textareaElement.setSelectionRange(newPos, newPos);
+      }
+    });
+  }
+
+  function triggerMentionButton() {
+    if (!textareaElement) return;
+    textareaElement.focus();
+    const cursorPos = textareaElement.selectionStart;
+    const before = textInput.slice(0, cursorPos);
+    const after = textInput.slice(cursorPos);
+    const needsLeadingSpace = cursorPos > 0 && !/\s/.test(before.slice(-1));
+    const insertText = needsLeadingSpace ? ' @' : '@';
+
+    textInput = before + insertText + after;
+    mentionAtIndex = before.length + (needsLeadingSpace ? 1 : 0);
+    mentionQuery = '';
+    mentionMenuOpen = true;
+    selectedMentionIndex = 0;
+
+    tick().then(() => {
+      if (textareaElement) {
+        const newPos = before.length + insertText.length;
+        textareaElement.setSelectionRange(newPos, newPos);
+      }
+    });
+  }
+
+  function insertMention(peerName) {
+    if (!peerName) return;
+    const cleanName = peerName === 'You' ? (currentUser?.display_name || 'me') : peerName;
+    const prefix = textInput && !textInput.endsWith(' ') ? ' ' : '';
+    textInput = textInput + `${prefix}@${cleanName} `;
+    mentionMenuOpen = false;
+    tick().then(() => {
+      if (textareaElement) {
+        textareaElement.focus();
+        textareaElement.setSelectionRange(textInput.length, textInput.length);
+      }
+    });
+  }
+
+  function handleMentionClick(segment) {
+    if (segment.peer && onSelectPeer) {
+      onSelectPeer(segment.peer.id);
+    } else {
+      insertMention(segment.name);
+    }
+  }
+
+  function handleWindowPointerDown(e) {
+    if (mentionMenuOpen && !e.target?.closest?.('[role="listbox"]') && e.target !== textareaElement) {
+      mentionMenuOpen = false;
+    }
+  }
+
   function handleKeyDown(e) {
+    // Autocomplete keyboard navigation
+    if (mentionMenuOpen && mentionCandidates.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedMentionIndex = (selectedMentionIndex + 1) % mentionCandidates.length;
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedMentionIndex = (selectedMentionIndex - 1 + mentionCandidates.length) % mentionCandidates.length;
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        applyMention(mentionCandidates[selectedMentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        mentionMenuOpen = false;
+        return;
+      }
+    }
+
     if (e.key === 'Escape' && replyingTo) {
       e.preventDefault();
       cancelReply();
@@ -599,6 +730,8 @@
   let isBroadcast = $derived(selectedPeer === 'broadcast' || !selectedPeer);
 </script>
 
+<svelte:window onpointerdown={handleWindowPointerDown} />
+
 <div
   role="region"
   aria-label="Chat messages and drop area"
@@ -797,20 +930,30 @@
         {@const prevSnippet = msg.type === 'code' ? findPreviousSnippet(index) : null}
         {@const targetReply = msg.reply_to || (msg.reply_to_id ? messages.find((m) => m.id === msg.reply_to_id) : null)}
         {@const isHighlighted = highlightedMsgId === msg.id}
+        {@const msgMentionsMe = !isMe && isUserMentioned(msg.body, currentUser, peers)}
 
         <div
           id={`msg-${msg.id}`}
           class="flex flex-col {isMe ? 'items-end' : 'items-start'} group transition-all duration-300 rounded-2xl {isHighlighted
             ? 'ring-2 ring-cyan-400 bg-cyan-950/40 p-2 shadow-lg shadow-cyan-500/20'
-            : 'p-0.5'}"
+            : msgMentionsMe
+              ? 'ring-1 ring-amber-500/50 bg-amber-950/15 p-1.5 shadow-sm shadow-amber-500/10'
+              : 'p-0.5'}"
         >
-          <!-- Sender Info, Timestamp & Reply action -->
-          <div class="flex items-center gap-2 mb-1 px-1 text-[11px] text-slate-400 font-mono">
+          <!-- Sender Info, Timestamp & Reply/Mention actions -->
+          <div class="flex items-center gap-1.5 sm:gap-2 mb-1 px-1 text-[11px] text-slate-400 font-mono">
             <span class="font-semibold {isMe ? 'text-cyan-400' : 'text-slate-300'}">
               {isMe ? 'You' : getSenderDisplayName(msg.sender_id)}
             </span>
             <span>•</span>
             <span>{formatRelativeTime(msg.created_at)}</span>
+
+            {#if msgMentionsMe}
+              <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-semibold">
+                <AtSign class="w-2.5 h-2.5 text-amber-400" />
+                <span>Mentioned you</span>
+              </span>
+            {/if}
 
             <!-- Quick Reply button on hover / touch -->
             <button
@@ -821,6 +964,18 @@
               <Reply class="w-3 h-3 text-cyan-400" />
               <span>Reply</span>
             </button>
+
+            <!-- Quick Mention button on hover / touch -->
+            {#if !isMe}
+              <button
+                onclick={() => insertMention(getSenderDisplayName(msg.sender_id))}
+                class="opacity-75 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity ml-0.5 flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 px-1.5 py-0.5 rounded cursor-pointer"
+                title="Mention {getSenderDisplayName(msg.sender_id)}"
+              >
+                <AtSign class="w-3 h-3 text-cyan-400" />
+                <span>Mention</span>
+              </button>
+            {/if}
           </div>
 
           <!-- Quoted Reply Card (if replying to another message) -->
@@ -862,7 +1017,7 @@
                 : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-xs'}"
             >
               <div class="{!isExpanded(msg.id) && textPreview.isLong ? 'max-h-52 overflow-hidden relative' : ''} {isExpanded(msg.id) && textPreview.totalLength > 1500 ? 'max-h-[500px] overflow-y-auto pr-1' : ''}">
-                {#each parseMessageSegments(textPreview.displayText) as segment}
+                {#each parseMessageSegments(textPreview.displayText, peers, currentUser) as segment}
                   {#if segment.type === 'link'}
                     <a
                       href={segment.href}
@@ -873,6 +1028,46 @@
                         : 'text-cyan-400 hover:text-cyan-300 decoration-cyan-500/50 hover:decoration-cyan-300'}"
                       onclick={(e) => e.stopPropagation()}
                     >{segment.text}</a>
+                  {:else if segment.type === 'mention'}
+                    {#if segment.isAll}
+                      <span
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] sm:text-xs font-mono font-bold align-baseline mx-0.5 {isMe
+                          ? 'bg-purple-900/70 text-purple-200 border border-purple-400/50'
+                          : 'bg-purple-950/80 text-purple-300 border border-purple-700/60'}"
+                        title="Mentioned all LAN peers"
+                      >
+                        <Radio class="w-3 h-3 text-purple-400 flex-shrink-0 animate-pulse" />
+                        <span>{segment.text}</span>
+                      </span>
+                    {:else if segment.isMe}
+                      <span
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] sm:text-xs font-mono font-bold align-baseline mx-0.5 shadow-xs {isMe
+                          ? 'bg-amber-400/30 text-amber-100 border border-amber-300/60 ring-1 ring-amber-400/40'
+                          : 'bg-amber-500/20 text-amber-300 border border-amber-400/50 ring-1 ring-amber-400/30'}"
+                        title="You were mentioned in this message!"
+                      >
+                        <AtSign class="w-3 h-3 text-amber-400 flex-shrink-0" />
+                        <span>{segment.text}</span>
+                      </span>
+                    {:else}
+                      <button
+                        type="button"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          handleMentionClick(segment);
+                        }}
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] sm:text-xs font-mono font-medium align-baseline mx-0.5 transition-all cursor-pointer {isMe
+                          ? 'bg-cyan-700/60 hover:bg-cyan-700 text-cyan-100 border border-cyan-400/40'
+                          : 'bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 hover:text-white border border-cyan-800/60 hover:border-cyan-600'}"
+                        title={segment.peer ? `Direct message ${segment.peer.display_name} (${segment.peer.ip_address})` : `Mentioned: ${segment.name}`}
+                      >
+                        <AtSign class="w-3 h-3 text-cyan-400 flex-shrink-0" />
+                        <span>{segment.text}</span>
+                        {#if segment.peer?.is_online}
+                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"></span>
+                        {/if}
+                      </button>
+                    {/if}
                   {:else}
                     {segment.text}
                   {/if}
@@ -932,8 +1127,16 @@
                     </span>
                   {/if}
                   {#if msg.body}
-                    <span class="text-xs text-slate-300 font-mono truncate max-w-[100px] sm:max-w-sm hidden xs:inline">
-                      {msg.body}
+                    <span class="text-xs text-slate-300 font-mono truncate max-w-[120px] sm:max-w-md hidden xs:inline">
+                      {#each parseMessageSegments(msg.body, peers, currentUser) as segment}
+                        {#if segment.type === 'mention'}
+                          <span class="text-cyan-400 font-semibold">{segment.text}</span>
+                        {:else if segment.type === 'link'}
+                          <a href={segment.href} target="_blank" rel="noopener noreferrer" class="underline text-cyan-400">{segment.text}</a>
+                        {:else}
+                          {segment.text}
+                        {/if}
+                      {/each}
                     </span>
                   {/if}
                 </div>
@@ -1185,21 +1388,101 @@
         </div>
       {/if}
 
+      <!-- Mention Autocomplete Popover -->
+      {#if mentionMenuOpen && mentionCandidates.length > 0}
+        <div
+          class="absolute bottom-full left-0 right-0 sm:left-2 sm:right-auto sm:w-80 mb-2 z-40 bg-slate-950/95 backdrop-blur-md border border-slate-750 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150"
+          role="listbox"
+          aria-label="Mention peer suggestions"
+        >
+          <div class="px-3 py-1.5 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span class="flex items-center gap-1.5 font-semibold text-cyan-400">
+              <AtSign class="w-3.5 h-3.5" />
+              <span>Mention Peer</span>
+            </span>
+            <span class="text-[10px] text-slate-500 hidden sm:inline">↑↓ navigate • Enter to select</span>
+          </div>
+
+          <div class="max-h-56 overflow-y-auto divide-y divide-slate-800/40 p-1">
+            {#each mentionCandidates as item, idx (item.id)}
+              {@const isSelected = selectedMentionIndex === idx}
+              <button
+                type="button"
+                onpointerdown={(e) => {
+                  e.preventDefault();
+                  applyMention(item);
+                }}
+                class="w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 transition-colors cursor-pointer {isSelected
+                  ? 'bg-cyan-950/70 border-l-2 border-cyan-400 text-white'
+                  : 'text-slate-300 hover:bg-slate-900/80 hover:text-white'}"
+              >
+                {#if item.isAll}
+                  <div class="w-7 h-7 rounded-lg bg-indigo-950/80 text-indigo-400 border border-indigo-800/60 flex items-center justify-center flex-shrink-0">
+                    <Radio class="w-3.5 h-3.5 animate-pulse" />
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs font-mono font-bold text-indigo-300">@all</span>
+                      <span class="text-[9px] px-1 py-0.2 rounded bg-indigo-950 text-indigo-400 border border-indigo-800/60 uppercase font-mono">
+                        Broadcast
+                      </span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 truncate font-mono">
+                      {item.subtitle}
+                    </p>
+                  </div>
+                {:else}
+                  <div class="relative w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-300 text-xs flex-shrink-0">
+                    {(item.displayName || 'P')[0]?.toUpperCase()}
+                    {#if item.isOnline}
+                      <div class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-slate-900"></div>
+                    {/if}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs font-mono font-semibold truncate text-slate-200">
+                        @{item.displayName}
+                      </span>
+                      {#if item.isMe}
+                        <span class="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+                          You
+                        </span>
+                      {/if}
+                      {#if item.isOnline}
+                        <span class="text-[9px] px-1 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50 font-mono">
+                          Online
+                        </span>
+                      {/if}
+                    </div>
+                    <p class="text-[10px] text-slate-400 truncate font-mono">
+                      {item.subtitle}
+                    </p>
+                  </div>
+                {/if}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       <!-- Textarea -->
       <textarea
         bind:this={textareaElement}
         bind:value={textInput}
         onkeydown={handleKeyDown}
+        oninput={updateMentionContext}
+        onclick={updateMentionContext}
+        onkeyup={updateMentionContext}
         placeholder={replyingTo
           ? `Replying to ${getSenderDisplayName(replyingTo.sender_id)}...`
-          : (isBroadcast ? "Type message to LAN broadcast (Shift+Enter for new line)..." : `Type direct message to ${selectedPeer?.display_name}...`)}
+          : (isBroadcast ? "Type message or @name to mention (Shift+Enter for new line)..." : `Type direct message to ${selectedPeer?.display_name}...`)}
         rows="1"
         class="w-full bg-transparent text-slate-100 placeholder-slate-500 text-sm p-2 sm:p-3 focus:outline-none resize-none font-sans min-h-[38px] max-h-32"
       ></textarea>
 
       <!-- Input Toolbar -->
       <div class="flex items-center justify-between px-2 sm:px-3 pb-2 pt-1 border-t border-slate-800/60 gap-1.5">
-        <!-- Left tools: Code drawer, File, Folder, Dev-Ignore toggle, Expiration -->
+        <!-- Left tools: Code drawer, Mention, File, Folder, Dev-Ignore toggle, Expiration -->
         <div class="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5 min-w-0">
           <!-- Open Code Drawer -->
           <button
@@ -1209,6 +1492,17 @@
           >
             <Code class="w-3.5 h-3.5 text-cyan-400" />
             <span class="hidden sm:inline">Add Code</span>
+          </button>
+
+          <!-- Mention Button -->
+          <button
+            type="button"
+            onclick={triggerMentionButton}
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-cyan-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer flex-shrink-0"
+            title="Mention a peer (@)"
+          >
+            <AtSign class="w-3.5 h-3.5 text-cyan-400" />
+            <span class="hidden sm:inline">Mention</span>
           </button>
 
           <!-- Hidden File Inputs -->

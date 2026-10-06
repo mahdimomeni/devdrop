@@ -13,7 +13,8 @@
   } from './lib/api.js';
   import PeerList from './lib/PeerList.svelte';
   import ChatView from './lib/ChatView.svelte';
-  import { Wifi, WifiOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-svelte';
+  import { Wifi, WifiOff, AlertCircle, CheckCircle2, Loader2, AtSign } from 'lucide-svelte';
+  import { isUserMentioned } from './lib/mentionUtils.js';
 
   let userId = getUserId();
   let currentUser = $state(null);
@@ -256,6 +257,15 @@
               [unreadKey]: (unreadCounts[unreadKey] || 0) + 1,
             };
           }
+
+          // Trigger mention alert toast if another peer mentioned me
+          if (newMsg.sender_id !== userId && isUserMentioned(newMsg.body, currentUser, peers)) {
+            const senderName = peers.find((p) => p.id === newMsg.sender_id)?.display_name || 'A peer';
+            const preview = newMsg.body
+              ? (newMsg.body.length > 50 ? newMsg.body.slice(0, 50) + '...' : newMsg.body)
+              : 'mentioned you';
+            showToast(`@${senderName} mentioned you: "${preview}"`, 'mention');
+          }
         }
         break;
 
@@ -337,9 +347,11 @@
 
   <!-- Floating Toast Alert -->
   {#if toast}
-    <div class="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-50 flex items-center gap-2.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border shadow-2xl text-xs font-mono animate-in fade-in slide-in-from-bottom-2 duration-150 {toast.type === 'error' ? 'bg-rose-950 border-rose-800 text-rose-200' : 'bg-slate-900 border-cyan-500/50 text-slate-100'} max-w-sm mx-auto sm:mx-0">
+    <div class="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-50 flex items-center gap-2.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border shadow-2xl text-xs font-mono animate-in fade-in slide-in-from-bottom-2 duration-150 {toast.type === 'error' ? 'bg-rose-950 border-rose-800 text-rose-200' : toast.type === 'mention' ? 'bg-amber-950/95 border-amber-500/70 text-amber-200 ring-1 ring-amber-500/30 shadow-amber-500/10' : 'bg-slate-900 border-cyan-500/50 text-slate-100'} max-w-sm mx-auto sm:mx-0">
       {#if toast.type === 'error'}
         <AlertCircle class="w-4 h-4 text-rose-400 flex-shrink-0" />
+      {:else if toast.type === 'mention'}
+        <AtSign class="w-4 h-4 text-amber-400 flex-shrink-0 animate-bounce" />
       {:else}
         <CheckCircle2 class="w-4 h-4 text-emerald-400 flex-shrink-0" />
       {/if}
@@ -381,6 +393,10 @@
         onUploadFiles={handleUploadFiles}
         onBackToPeers={() => (mobileActiveView = 'peers')}
         totalUnreadCount={totalUnreads}
+        onSelectPeer={(id) => {
+          loadConversation(id);
+          mobileActiveView = 'chat';
+        }}
       />
     </div>
   </div>
