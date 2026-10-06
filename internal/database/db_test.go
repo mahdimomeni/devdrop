@@ -68,12 +68,15 @@ func TestReplyFunctionality(t *testing.T) {
 	}
 
 	// 5. Test GetMessages retrieves replied messages with full joined details
-	msgs, err := db.GetMessages("user-alice", "broadcast", 50)
+	msgs, hasMore, err := db.GetMessages("user-alice", "broadcast", 50, "")
 	if err != nil {
 		t.Fatalf("failed to get messages: %v", err)
 	}
 	if len(msgs) != 4 {
 		t.Fatalf("expected 4 messages, got %d", len(msgs))
+	}
+	if hasMore {
+		t.Errorf("expected hasMore to be false for all messages fetched, got true")
 	}
 
 	// Verify msg-2 in list
@@ -95,3 +98,74 @@ func TestReplyFunctionality(t *testing.T) {
 		t.Errorf("expected retrieved msg-4 to have ReplyTo populated with snippet lang go, got %+v", foundMsg4)
 	}
 }
+
+func TestGetMessagesPagination(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "devdrop_page_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	db, err := InitDB(tempDir)
+	if err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().UTC()
+	// Insert 5 messages in chronological order
+	for i := 1; i <= 5; i++ {
+		msgID := "msg-" + string(rune('0'+i))
+		body := "Message " + string(rune('0'+i))
+		_, err := db.SaveTextMessage(msgID, "user-alice", "broadcast", body, nil, now.Add(time.Duration(i)*time.Second))
+		if err != nil {
+			t.Fatalf("failed to save msg %d: %v", i, err)
+		}
+	}
+
+	// 1. Initial fetch with limit=2 (should return the 2 most recent: msg-4, msg-5, in chronological order)
+	page1, hasMore1, err := db.GetMessages("user-alice", "broadcast", 2, "")
+	if err != nil {
+		t.Fatalf("failed to get page 1: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("expected 2 messages in page 1, got %d", len(page1))
+	}
+	if !hasMore1 {
+		t.Errorf("expected hasMore to be true for page 1")
+	}
+	if page1[0].ID != "msg-4" || page1[1].ID != "msg-5" {
+		t.Errorf("expected page1 to be [msg-4, msg-5], got [%s, %s]", page1[0].ID, page1[1].ID)
+	}
+
+	// 2. Fetch older messages before msg-4 with limit=2 (should return msg-2, msg-3)
+	page2, hasMore2, err := db.GetMessages("user-alice", "broadcast", 2, page1[0].ID)
+	if err != nil {
+		t.Fatalf("failed to get page 2: %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("expected 2 messages in page 2, got %d", len(page2))
+	}
+	if !hasMore2 {
+		t.Errorf("expected hasMore to be true for page 2")
+	}
+	if page2[0].ID != "msg-2" || page2[1].ID != "msg-3" {
+		t.Errorf("expected page2 to be [msg-2, msg-3], got [%s, %s]", page2[0].ID, page2[1].ID)
+	}
+
+	// 3. Fetch older messages before msg-2 with limit=2 (should return msg-1, and hasMore=false)
+	page3, hasMore3, err := db.GetMessages("user-alice", "broadcast", 2, page2[0].ID)
+	if err != nil {
+		t.Fatalf("failed to get page 3: %v", err)
+	}
+	if len(page3) != 1 {
+		t.Fatalf("expected 1 message in page 3, got %d", len(page3))
+	}
+	if hasMore3 {
+		t.Errorf("expected hasMore to be false for page 3")
+	}
+	if page3[0].ID != "msg-1" {
+		t.Errorf("expected page3 to be [msg-1], got [%s]", page3[0].ID)
+	}
+}
+

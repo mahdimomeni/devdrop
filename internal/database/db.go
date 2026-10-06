@@ -125,6 +125,10 @@ func InitDB(dataDir string) (*DB, error) {
 
 	CREATE INDEX IF NOT EXISTS idx_messages_conversation 
 	ON messages(sender_id, receiver_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_messages_receiver 
+	ON messages(receiver_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_messages_created_at 
+	ON messages(created_at);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -442,18 +446,29 @@ func (d *DB) SaveTransferMessage(
 	return msg, nil
 }
 
-func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
+func (d *DB) GetMessages(userA, userB string, limit int, beforeID string) ([]Message, bool, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	if limit <= 0 || limit > 500 {
-		limit = 100
+	if limit <= 0 || limit > 100 {
+		limit = 40
 	}
 
-	// Support both direct 1-to-1 conversation and broadcast (receiver_id = 'all')
+	var beforeCreatedAt time.Time
+	var beforeRowID int64
+	if beforeID != "" {
+		err := d.db.QueryRow("SELECT rowid, created_at FROM messages WHERE id = ?", beforeID).Scan(&beforeRowID, &beforeCreatedAt)
+		if err != nil {
+			return []Message{}, false, nil
+		}
+	}
+
 	var query string
 	var rows *sql.Rows
 	var err error
+
+	// Query limit + 1 to accurately detect if more messages exist
+	queryLimit := limit + 1
 
 	selectCols := `
 		SELECT m.id, m.sender_id, m.receiver_id, m.type, m.body, m.reply_to_id, m.created_at,
@@ -471,29 +486,48 @@ func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
 	`
 
 	if userB == "broadcast" || userB == "all" || userB == "" {
-		query = selectCols + `
-		WHERE m.receiver_id = 'all' OR m.receiver_id = 'broadcast'
-		ORDER BY m.created_at ASC
-		LIMIT ?;
-		`
-		rows, err = d.db.Query(query, limit)
+		if beforeID != "" {
+			query = selectCols + `
+			WHERE (m.receiver_id = 'all' OR m.receiver_id = 'broadcast')
+			  AND (m.created_at < ? OR (m.created_at = ? AND m.rowid < ?))
+			ORDER BY m.created_at DESC, m.rowid DESC
+			LIMIT ?;
+			`
+			rows, err = d.db.Query(query, beforeCreatedAt, beforeCreatedAt, beforeRowID, queryLimit)
+		} else {
+			query = selectCols + `
+			WHERE (m.receiver_id = 'all' OR m.receiver_id = 'broadcast')
+			ORDER BY m.created_at DESC, m.rowid DESC
+			LIMIT ?;
+			`
+			rows, err = d.db.Query(query, queryLimit)
+		}
 	} else {
-		query = selectCols + `
-		WHERE (m.sender_id = ? AND m.receiver_id = ?)
-		   OR (m.sender_id = ? AND m.receiver_id = ?)
-		ORDER BY m.created_at ASC
-		LIMIT ?;
-		`
-		rows, err = d.db.Query(query, userA, userB, userB, userA, limit)
+		if beforeID != "" {
+			query = selectCols + `
+			WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?))
+			  AND (m.created_at < ? OR (m.created_at = ? AND m.rowid < ?))
+			ORDER BY m.created_at DESC, m.rowid DESC
+			LIMIT ?;
+			`
+			rows, err = d.db.Query(query, userA, userB, userB, userA, beforeCreatedAt, beforeCreatedAt, beforeRowID, queryLimit)
+		} else {
+			query = selectCols + `
+			WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?))
+			ORDER BY m.created_at DESC, m.rowid DESC
+			LIMIT ?;
+			`
+			rows, err = d.db.Query(query, userA, userB, userB, userA, queryLimit)
+		}
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 
 	now := time.Now().UTC()
-	var messages []Message
+	messages := make([]Message, 0, limit)
 	for rows.Next() {
 		var m Message
 		var (
@@ -523,7 +557,7 @@ func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
 			&rcLang, &rcContent,
 			&rtName, &rtSize, &rtPath, &rtIsZip, &rtBurnOnRead, &rtExpiresAt, &rtDownloadCount,
 		); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		if mReplyToID.Valid && mReplyToID.String != "" {
@@ -589,7 +623,22 @@ func (d *DB) GetMessages(userA, userB string, limit int) ([]Message, error) {
 		messages = append(messages, m)
 	}
 
-	return messages, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+
+	hasMore := false
+	if len(messages) > limit {
+		hasMore = true
+		messages = messages[:limit]
+	}
+
+	// Reverse messages so they are returned in ascending chronological order (oldest to newest)
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+
+	return messages, hasMore, nil
 }
 
 func (d *DB) GetTransfer(messageID string) (*Transfer, error) {

@@ -19,7 +19,9 @@
     Info,
     FileText,
     Reply,
-    X
+    X,
+    Loader2,
+    ChevronDown
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
@@ -31,6 +33,10 @@
     selectedPeer,
     peers = [],
     messages = [],
+    hasMore = false,
+    isLoadingMessages = false,
+    isLoadingOlder = false,
+    onLoadOlder,
     onSendMessage,
     onSendCode,
     onUploadFiles,
@@ -68,6 +74,14 @@
   // Copied message IDs
   let copiedId = $state(null);
 
+  // Scroll and pagination tracking
+  let isNearBottom = $state(true);
+  let hasNewUnreadBelow = $state(false);
+  let lastPeerId = $state(null);
+  let lastMessageId = $state(null);
+  let isInitialScrollDone = $state(false);
+  let isPrepending = false;
+
   // Auto scroll to bottom
   async function scrollToBottom(smooth = true) {
     await tick();
@@ -76,13 +90,97 @@
         top: messagesContainer.scrollHeight,
         behavior: smooth ? 'smooth' : 'auto',
       });
+      isNearBottom = true;
+      hasNewUnreadBelow = false;
     }
   }
 
+  // Handle scroll events on message container
+  function handleContainerScroll() {
+    if (!messagesContainer) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
+
+    // Check if user is scrolled near bottom
+    const nearBottom = scrollHeight - scrollTop - clientHeight < 150;
+    isNearBottom = nearBottom;
+    if (nearBottom) {
+      hasNewUnreadBelow = false;
+    }
+
+    // Check if user scrolled near top to lazy-load older messages
+    if (scrollTop < 80 && hasMore && !isLoadingOlder && !isPrepending && onLoadOlder) {
+      triggerLoadOlder();
+    }
+  }
+
+  // Lazy load older messages while seamlessly retaining scroll position
+  async function triggerLoadOlder() {
+    if (!messagesContainer || !onLoadOlder || isLoadingOlder || isPrepending || !hasMore) return;
+
+    isPrepending = true;
+    const prevScrollHeight = messagesContainer.scrollHeight;
+    const prevScrollTop = messagesContainer.scrollTop;
+
+    try {
+      await onLoadOlder();
+      await tick();
+
+      if (messagesContainer) {
+        const newScrollHeight = messagesContainer.scrollHeight;
+        const heightDiff = newScrollHeight - prevScrollHeight;
+        messagesContainer.scrollTop = prevScrollTop + heightDiff;
+      }
+    } finally {
+      setTimeout(() => {
+        isPrepending = false;
+      }, 120);
+    }
+  }
+
+  // When selected peer changes, reset scroll tracking
   $effect(() => {
-    // Scroll when messages change
-    if (messages.length) {
-      scrollToBottom();
+    const currentPeerId = selectedPeer?.id || 'broadcast';
+    if (currentPeerId !== lastPeerId) {
+      lastPeerId = currentPeerId;
+      lastMessageId = null;
+      isInitialScrollDone = false;
+      isNearBottom = true;
+      hasNewUnreadBelow = false;
+    }
+  });
+
+  // When messages update:
+  $effect(() => {
+    if (messages.length > 0) {
+      const currentLast = messages[messages.length - 1];
+
+      if (!isInitialScrollDone) {
+        // Initial load for this peer: jump directly to bottom
+        isInitialScrollDone = true;
+        lastMessageId = currentLast ? currentLast.id : null;
+        scrollToBottom(false);
+      } else if (currentLast && currentLast.id !== lastMessageId) {
+        // A new message was appended to the bottom!
+        const isFromMe = currentLast.sender_id === currentUser?.id;
+        lastMessageId = currentLast.id;
+
+        if (isFromMe || isNearBottom) {
+          scrollToBottom(true);
+        } else {
+          hasNewUnreadBelow = true;
+        }
+      }
+    }
+  });
+
+  // If initial batch doesn't fill the container and hasMore is true, auto-fetch until scrollable
+  $effect(() => {
+    if (messages.length > 0 && hasMore && !isLoadingOlder && !isPrepending && isInitialScrollDone) {
+      tick().then(() => {
+        if (messagesContainer && messagesContainer.scrollHeight <= messagesContainer.clientHeight + 60) {
+          triggerLoadOlder();
+        }
+      });
     }
   });
 
@@ -524,9 +622,15 @@
   <!-- Message History Scroll Area -->
   <div
     bind:this={messagesContainer}
+    onscroll={handleContainerScroll}
     class="flex-1 overflow-y-auto p-6 space-y-5 select-text"
   >
-    {#if messages.length === 0}
+    {#if isLoadingMessages}
+      <div class="h-full flex flex-col items-center justify-center text-center p-8 text-slate-500">
+        <Loader2 class="w-8 h-8 text-cyan-400 animate-spin mb-3" />
+        <span class="text-xs font-mono text-slate-400">Loading conversation...</span>
+      </div>
+    {:else if messages.length === 0}
       <div class="h-full flex flex-col items-center justify-center text-center p-8 text-slate-500">
         <div class="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 mb-3 text-slate-400">
           <Terminal class="w-10 h-10" />
@@ -541,6 +645,21 @@
         </p>
       </div>
     {:else}
+      <!-- Lazy load top indicator or beginning marker -->
+      {#if isLoadingOlder}
+        <div class="flex items-center justify-center py-2 text-xs font-mono text-cyan-400 gap-2">
+          <Loader2 class="w-4 h-4 animate-spin text-cyan-400" />
+          <span>Loading earlier messages...</span>
+        </div>
+      {:else if !hasMore}
+        <div class="flex items-center justify-center my-3">
+          <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-950/70 border border-slate-800 text-[11px] font-mono text-slate-500 shadow-sm">
+            <Radio class="w-3 h-3 text-cyan-400/70" />
+            <span>Beginning of conversation history</span>
+          </div>
+        </div>
+      {/if}
+
       {#each messages as msg, index (msg.id)}
         {@const isMe = msg.sender_id === currentUser?.id}
         {@const prevSnippet = msg.type === 'code' ? findPreviousSnippet(index) : null}
@@ -684,6 +803,24 @@
       {/each}
     {/if}
   </div>
+
+  <!-- Floating Scroll To Bottom Button (Telegram style) -->
+  {#if !isNearBottom && messages.length > 0}
+    <button
+      type="button"
+      onclick={() => scrollToBottom(true)}
+      class="absolute bottom-24 right-8 z-30 flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/95 hover:bg-slate-800 text-slate-200 border border-slate-750 hover:border-cyan-500/60 shadow-2xl backdrop-blur-md text-xs font-mono transition-all duration-200 active:scale-95 cursor-pointer group"
+      title="Scroll to latest messages"
+    >
+      <ChevronDown class="w-4 h-4 text-cyan-400 group-hover:translate-y-0.5 transition-transform" />
+      {#if hasNewUnreadBelow}
+        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+        <span class="text-cyan-300 font-semibold text-[11px]">New messages</span>
+      {:else}
+        <span class="text-slate-400 group-hover:text-slate-200 text-[11px]">Latest</span>
+      {/if}
+    </button>
+  {/if}
 
   <!-- Code Drawer Component (Collapsible sliding up from input area) -->
   {#if isCodeDrawerOpen}

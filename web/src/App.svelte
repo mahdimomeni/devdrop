@@ -20,6 +20,9 @@
   let peers = $state([]);
   let selectedPeerId = $state('broadcast');
   let messages = $state([]);
+  let hasMore = $state(false);
+  let isLoadingMessages = $state(false);
+  let isLoadingOlder = $state(false);
   let unreadCounts = $state({});
   let isWsConnected = $state(false);
 
@@ -52,12 +55,41 @@
     selectedPeerId = peerId;
     // Clear unreads
     unreadCounts = { ...unreadCounts, [peerId]: 0 };
+    isLoadingMessages = true;
+    hasMore = false;
+    messages = [];
 
     try {
-      const msgs = await getMessages(userId, peerId);
-      messages = msgs;
+      const res = await getMessages(userId, peerId, 40);
+      messages = res.messages;
+      hasMore = res.hasMore;
     } catch (err) {
       console.error('Failed to load messages:', err);
+    } finally {
+      isLoadingMessages = false;
+    }
+  }
+
+  async function handleLoadOlder() {
+    if (isLoadingOlder || !hasMore || messages.length === 0) return false;
+    const oldest = messages[0];
+    if (!oldest) return false;
+
+    isLoadingOlder = true;
+    try {
+      const res = await getMessages(userId, selectedPeerId, 40, oldest.id);
+      if (res.messages && res.messages.length > 0) {
+        const existingIds = new Set(messages.map((m) => m.id));
+        const newOldMessages = res.messages.filter((m) => !existingIds.has(m.id));
+        messages = [...newOldMessages, ...messages];
+      }
+      hasMore = res.hasMore;
+      return true;
+    } catch (err) {
+      console.error('Failed to load older messages:', err);
+      return false;
+    } finally {
+      isLoadingOlder = false;
     }
   }
 
@@ -316,6 +348,10 @@
       {selectedPeer}
       {peers}
       {messages}
+      {hasMore}
+      {isLoadingMessages}
+      {isLoadingOlder}
+      onLoadOlder={handleLoadOlder}
       onSendMessage={handleSendMessage}
       onSendCode={handleSendCode}
       onUploadFiles={handleUploadFiles}

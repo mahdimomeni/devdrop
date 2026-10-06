@@ -135,13 +135,14 @@ func (s *ServerHandler) handleGetMessages(w http.ResponseWriter, r *http.Request
 	userID := r.URL.Query().Get("user_id")
 	peerID := r.URL.Query().Get("peer_id")
 	limitStr := r.URL.Query().Get("limit")
+	beforeID := r.URL.Query().Get("before")
 
-	limit := 100
+	limit := 40
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = l
 	}
 
-	messages, err := s.db.GetMessages(userID, peerID, limit)
+	messages, hasMore, err := s.db.GetMessages(userID, peerID, limit, beforeID)
 	if err != nil {
 		http.Error(w, "failed to load messages", http.StatusInternalServerError)
 		return
@@ -152,6 +153,7 @@ func (s *ServerHandler) handleGetMessages(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Has-More", strconv.FormatBool(hasMore))
 	_ = json.NewEncoder(w).Encode(messages)
 }
 

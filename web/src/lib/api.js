@@ -135,10 +135,17 @@ export async function getPeers() {
   return res.json();
 }
 
-export async function getMessages(userId, peerId) {
-  const res = await fetch(`/api/messages?user_id=${encodeURIComponent(userId)}&peer_id=${encodeURIComponent(peerId)}`);
+export async function getMessages(userId, peerId, limit = 40, before = null) {
+  let url = `/api/messages?user_id=${encodeURIComponent(userId)}&peer_id=${encodeURIComponent(peerId)}&limit=${limit}`;
+  if (before) {
+    url += `&before=${encodeURIComponent(before)}`;
+  }
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to load messages');
-  return res.json();
+  const messages = await res.json();
+  const hasMoreHeader = res.headers.get('X-Has-More');
+  const hasMore = hasMoreHeader !== null ? hasMoreHeader === 'true' : (messages && messages.length >= limit);
+  return { messages: messages || [], hasMore };
 }
 
 export async function sendTextMessage(senderId, receiverId, body, replyToId = null) {
