@@ -180,3 +180,83 @@ func TestGetMessagesPaginationHandler(t *testing.T) {
 	}
 }
 
+func TestLinkPreviewEndpoint(t *testing.T) {
+	// Spin up a mock web server with OG tags
+	mockTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		html := `
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<meta property="og:site_name" content="DevDrop Docs" />
+			<meta property="og:title" content="Instant LAN Sharing" />
+			<meta property="og:description" content="Super fast local file sharing" />
+			<meta property="og:image" content="/preview.png" />
+			<title>Fallback</title>
+		</head>
+		<body></body>
+		</html>
+		`
+		w.Write([]byte(html))
+	}))
+	defer mockTarget.Close()
+
+	tempDir, err := os.MkdirTemp("", "devdrop_preview_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	db, err := database.InitDB(tempDir)
+	if err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+	defer db.Close()
+
+	wsHub := hub.NewHub(db)
+	uploadDir := filepath.Join(tempDir, "uploads")
+	tm, err := transfer.NewManager(uploadDir, db, wsHub)
+	if err != nil {
+		t.Fatalf("failed to init tm: %v", err)
+	}
+
+	h := NewServerHandler(db, wsHub, tm)
+	r := chi.NewRouter()
+	h.RegisterRoutes(r)
+
+	// 1. Request with missing url
+	reqMissing := httptest.NewRequest(http.MethodGet, "/api/preview", nil)
+	recMissing := httptest.NewRecorder()
+	r.ServeHTTP(recMissing, reqMissing)
+	if recMissing.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing url, got %d", recMissing.Code)
+	}
+
+	// 2. Request with valid mock URL
+	reqValid := httptest.NewRequest(http.MethodGet, "/api/preview?url="+mockTarget.URL, nil)
+	recValid := httptest.NewRecorder()
+	r.ServeHTTP(recValid, reqValid)
+
+	if recValid.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recValid.Code, recValid.Body.String())
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(recValid.Body).Decode(&data); err != nil {
+		t.Fatalf("failed to decode preview json: %v", err)
+	}
+
+	if data["title"] != "Instant LAN Sharing" {
+		t.Errorf("expected title 'Instant LAN Sharing', got %v", data["title"])
+	}
+	if data["site_name"] != "DevDrop Docs" {
+		t.Errorf("expected site_name 'DevDrop Docs', got %v", data["site_name"])
+	}
+	if data["description"] != "Super fast local file sharing" {
+		t.Errorf("expected description 'Super fast local file sharing', got %v", data["description"])
+	}
+	if data["image"] != mockTarget.URL+"/preview.png" {
+		t.Errorf("expected image %s, got %v", mockTarget.URL+"/preview.png", data["image"])
+	}
+}
+

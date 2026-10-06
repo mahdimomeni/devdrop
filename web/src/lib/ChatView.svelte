@@ -30,7 +30,9 @@
   import FileCard from './FileCard.svelte';
   import CodeEditor from './CodeEditor.svelte';
   import DiffModal from './DiffModal.svelte';
+  import LinkPreviewCard from './LinkPreviewCard.svelte';
   import { highlightCodeLines, normalizeLang, renderMarkdown } from './syntaxHighlight.js';
+  import { parseMessageSegments, extractFirstUrl } from './linkUtils.js';
 
   let {
     currentUser,
@@ -853,14 +855,33 @@
           <!-- Message Body by Type -->
           {#if msg.type === 'text'}
             {@const textPreview = getTextPreview(msg.body, isExpanded(msg.id))}
+            {@const firstUrl = extractFirstUrl(msg.body)}
             <div
               class="relative max-w-[88%] sm:max-w-xl md:max-w-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
                 ? 'bg-cyan-600 text-white rounded-br-xs'
                 : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-xs'}"
             >
               <div class="{!isExpanded(msg.id) && textPreview.isLong ? 'max-h-52 overflow-hidden relative' : ''} {isExpanded(msg.id) && textPreview.totalLength > 1500 ? 'max-h-[500px] overflow-y-auto pr-1' : ''}">
-                {textPreview.displayText}
+                {#each parseMessageSegments(textPreview.displayText) as segment}
+                  {#if segment.type === 'link'}
+                    <a
+                      href={segment.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="font-medium underline underline-offset-2 break-all transition-colors {isMe
+                        ? 'text-cyan-100 hover:text-white decoration-cyan-300/70 hover:decoration-white'
+                        : 'text-cyan-400 hover:text-cyan-300 decoration-cyan-500/50 hover:decoration-cyan-300'}"
+                      onclick={(e) => e.stopPropagation()}
+                    >{segment.text}</a>
+                  {:else}
+                    {segment.text}
+                  {/if}
+                {/each}
               </div>
+
+              {#if firstUrl}
+                <LinkPreviewCard url={firstUrl} {isMe} />
+              {/if}
 
               {#if textPreview.isLong}
                 <div class="mt-2 pt-1.5 border-t {isMe ? 'border-cyan-500/50' : 'border-slate-700/80'} flex items-center justify-between gap-3 text-xs font-mono">

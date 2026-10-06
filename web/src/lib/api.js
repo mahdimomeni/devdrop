@@ -186,6 +186,42 @@ export async function sendCodeMessage(senderId, receiverId, body, language, code
   return res.json();
 }
 
+// Client-side cache for link previews to prevent redundant requests
+const linkPreviewCache = new Map();
+const pendingPreviewRequests = new Map();
+
+export async function fetchLinkPreview(url) {
+  if (!url) return null;
+  if (linkPreviewCache.has(url)) {
+    return linkPreviewCache.get(url);
+  }
+  if (pendingPreviewRequests.has(url)) {
+    return pendingPreviewRequests.get(url);
+  }
+
+  const reqPromise = (async () => {
+    try {
+      const res = await fetch(`/api/preview?url=${encodeURIComponent(url)}`);
+      if (!res.ok) {
+        linkPreviewCache.set(url, null);
+        return null;
+      }
+      const data = await res.json();
+      linkPreviewCache.set(url, data);
+      return data;
+    } catch (err) {
+      console.warn('Failed to load link preview for', url, err);
+      linkPreviewCache.set(url, null);
+      return null;
+    } finally {
+      pendingPreviewRequests.delete(url);
+    }
+  })();
+
+  pendingPreviewRequests.set(url, reqPromise);
+  return reqPromise;
+}
+
 export async function uploadTransfer(formData, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

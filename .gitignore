@@ -9,6 +9,7 @@ web/dist/
 
 # Application Data & SQLite Database Files
 data/
+data_test/
 *.db
 *.db-shm
 *.db-wal

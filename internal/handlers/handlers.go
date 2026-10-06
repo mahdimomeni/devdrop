@@ -9,6 +9,7 @@ import (
 
 	"devdrop/internal/database"
 	"devdrop/internal/hub"
+	"devdrop/internal/preview"
 	"devdrop/internal/transfer"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +20,7 @@ type ServerHandler struct {
 	db              *database.DB
 	hub             *hub.Hub
 	transferManager *transfer.Manager
+	previewService  *preview.Service
 }
 
 func NewServerHandler(db *database.DB, h *hub.Hub, tm *transfer.Manager) *ServerHandler {
@@ -26,6 +28,7 @@ func NewServerHandler(db *database.DB, h *hub.Hub, tm *transfer.Manager) *Server
 		db:              db,
 		hub:             h,
 		transferManager: tm,
+		previewService:  preview.NewService(),
 	}
 }
 
@@ -42,6 +45,9 @@ func (s *ServerHandler) RegisterRoutes(r chi.Router) {
 		// Messaging & History
 		api.Get("/messages", s.handleGetMessages)
 		api.Post("/messages", s.handleSendMessage)
+
+		// Link Preview
+		api.Get("/preview", s.handleGetLinkPreview)
 
 		// File Transfers
 		api.Post("/upload", s.handleUpload)
@@ -257,3 +263,21 @@ func (s *ServerHandler) handleGetTransferMeta(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(t)
 }
+
+func (s *ServerHandler) handleGetLinkPreview(w http.ResponseWriter, r *http.Request) {
+	targetURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if targetURL == "" {
+		http.Error(w, "missing url query parameter", http.StatusBadRequest)
+		return
+	}
+
+	previewData, err := s.previewService.Fetch(r.Context(), targetURL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(previewData)
+}
+
