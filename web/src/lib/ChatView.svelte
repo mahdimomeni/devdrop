@@ -22,7 +22,8 @@
     X,
     Loader2,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    ChevronLeft
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
@@ -41,6 +42,8 @@
     onSendMessage,
     onSendCode,
     onUploadFiles,
+    onBackToPeers = null,
+    totalUnreadCount = 0,
   } = $props();
 
   let textInput = $state('');
@@ -578,7 +581,7 @@
 <div
   role="region"
   aria-label="Chat messages and drop area"
-  class="relative flex-1 h-full flex flex-col bg-slate-900 overflow-hidden"
+  class="relative flex-1 w-full h-full flex flex-col bg-slate-900 overflow-hidden min-h-0"
   ondragenter={handleDragEnter}
   ondragleave={handleDragLeave}
   ondragover={handleDragOver}
@@ -608,60 +611,80 @@
   {/if}
 
   <!-- Header -->
-  <header class="h-16 px-6 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between flex-shrink-0 backdrop-blur-sm z-10">
-    <div class="flex items-center gap-3.5">
+  <header class="h-14 sm:h-16 px-3 sm:px-6 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between flex-shrink-0 backdrop-blur-sm z-10">
+    <div class="flex items-center gap-2 sm:gap-3.5 min-w-0">
+      <!-- Mobile Back Button -->
+      {#if onBackToPeers}
+        <button
+          type="button"
+          onclick={onBackToPeers}
+          class="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 -ml-1 text-slate-300 hover:text-white bg-slate-900/90 hover:bg-slate-800 border border-slate-750 rounded-xl text-xs font-mono transition-colors cursor-pointer flex-shrink-0"
+          title="Back to peers list"
+          aria-label="Back to peer list"
+        >
+          <ChevronLeft class="w-4 h-4 text-cyan-400" />
+          <span class="text-xs font-medium">Peers</span>
+          {#if totalUnreadCount > 0}
+            <span class="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-cyan-500 text-slate-950 font-mono">
+              {totalUnreadCount}
+            </span>
+          {/if}
+        </button>
+      {/if}
+
       {#if isBroadcast}
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 to-amber-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-          <Radio class="w-5 h-5 animate-pulse" />
+        <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 to-amber-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 flex-shrink-0">
+          <Radio class="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
         </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <h1 class="text-sm font-semibold text-slate-100 font-mono tracking-tight">
-              LAN Broadcast Room
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <h1 class="text-xs sm:text-sm font-semibold text-slate-100 font-mono tracking-tight truncate">
+              LAN Broadcast
             </h1>
-            <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 font-bold border border-cyan-800/50 uppercase tracking-wider">
-              Public Feed
+            <span class="text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 font-bold border border-cyan-800/50 uppercase tracking-wider flex-shrink-0">
+              All Peers
             </span>
           </div>
-          <p class="text-xs text-slate-400 font-mono mt-0.5">
-            Messages and files are visible to all connected LAN developers
+          <p class="text-[10px] sm:text-xs text-slate-400 font-mono mt-0.5 truncate">
+            <span class="hidden sm:inline">Messages and files are visible to all connected LAN developers</span>
+            <span class="sm:hidden">Public feed • LAN network</span>
           </p>
         </div>
       {:else}
-        <div class="relative w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-200 text-sm">
+        <div class="relative w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-200 text-xs sm:text-sm flex-shrink-0">
           {(selectedPeer?.display_name || 'P')[0]?.toUpperCase()}
           {#if selectedPeer?.is_online}
-            <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse shadow-sm shadow-emerald-400"></div>
+            <div class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse shadow-sm shadow-emerald-400"></div>
           {:else}
-            <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-900"></div>
+            <div class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-slate-600 border-2 border-slate-900"></div>
           {/if}
         </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <h1 class="text-sm font-semibold text-slate-100 font-mono">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <h1 class="text-xs sm:text-sm font-semibold text-slate-100 font-mono truncate">
               {selectedPeer?.display_name}
             </h1>
             {#if selectedPeer?.is_online}
-              <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 font-bold border border-emerald-800/40 font-mono">
+              <span class="text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 font-bold border border-emerald-800/40 font-mono flex-shrink-0">
                 Online
               </span>
             {:else}
-              <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono">
+              <span class="text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono flex-shrink-0">
                 Offline
               </span>
             {/if}
           </div>
-          <p class="text-xs text-slate-400 font-mono mt-0.5 flex items-center gap-2">
-            <span>IP: <strong class="text-slate-300">{selectedPeer?.ip_address}</strong></span>
+          <p class="text-[10px] sm:text-xs text-slate-400 font-mono mt-0.5 flex items-center gap-1.5 truncate">
+            <span class="truncate">IP: <strong class="text-slate-300">{selectedPeer?.ip_address}</strong></span>
             <span>•</span>
-            <span>Direct 1-to-1</span>
+            <span class="flex-shrink-0">Direct 1-to-1</span>
           </p>
         </div>
       {/if}
     </div>
 
     <!-- Right header stats -->
-    <div class="flex items-center gap-3 text-xs text-slate-400 font-mono">
+    <div class="flex items-center gap-2 sm:gap-3 text-xs text-slate-400 font-mono flex-shrink-0">
       <div class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 rounded-lg border border-slate-800">
         <Terminal class="w-3.5 h-3.5 text-cyan-400" />
         <span>DevDrop Channel</span>
@@ -671,23 +694,23 @@
 
   <!-- Smart Paste Toast Prompt -->
   {#if smartPastePrompt}
-    <div class="bg-cyan-950/90 border-b border-cyan-800 px-6 py-2.5 flex items-center justify-between text-xs text-cyan-200 animate-in slide-in-from-top duration-200 z-10 shadow-lg">
-      <div class="flex items-center gap-2.5">
+    <div class="bg-cyan-950/90 border-b border-cyan-800 px-3 sm:px-6 py-2 sm:py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-cyan-200 animate-in slide-in-from-top duration-200 z-10 shadow-lg flex-shrink-0">
+      <div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
         <Sparkles class="w-4 h-4 text-cyan-400 flex-shrink-0 animate-spin" />
-        <span class="font-medium">
+        <span class="font-medium text-[11px] sm:text-xs truncate">
           Multi-line code detected ({smartPastePrompt.linesCount} lines). Open in Code Snippet Editor?
         </span>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
         <button
           onclick={openSmartPasteInEditor}
-          class="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-md shadow transition-colors cursor-pointer"
+          class="px-2.5 sm:px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs rounded-md shadow transition-colors cursor-pointer"
         >
           Open in Editor
         </button>
         <button
           onclick={dismissSmartPaste}
-          class="px-2.5 py-1 text-slate-400 hover:text-white transition-colors"
+          class="px-2 py-1 text-slate-400 hover:text-white text-xs transition-colors"
         >
           Dismiss
         </button>
@@ -699,7 +722,7 @@
   <div
     bind:this={messagesContainer}
     onscroll={handleContainerScroll}
-    class="flex-1 overflow-y-auto p-6 space-y-5 select-text [overflow-anchor:none]"
+    class="flex-1 overflow-y-auto min-h-0 p-3 sm:p-5 md:p-6 space-y-3 sm:space-y-4 md:space-y-5 select-text [overflow-anchor:none]"
     style="overflow-anchor: none;"
   >
     {#if isLoadingMessages}
@@ -768,10 +791,10 @@
             <span>•</span>
             <span>{formatRelativeTime(msg.created_at)}</span>
 
-            <!-- Quick Reply button on hover -->
+            <!-- Quick Reply button on hover / touch -->
             <button
               onclick={() => startReply(msg)}
-              class="opacity-0 group-hover:opacity-100 transition-opacity ml-1.5 flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 px-1.5 py-0.5 rounded cursor-pointer"
+              class="opacity-75 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity ml-1.5 flex items-center gap-1 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 px-1.5 py-0.5 rounded cursor-pointer"
               title="Reply to this message"
             >
               <Reply class="w-3 h-3 text-cyan-400" />
@@ -784,7 +807,7 @@
             <button
               type="button"
               onclick={() => scrollToMessage(targetReply.id)}
-              class="mb-1.5 max-w-2xl text-left px-3 py-1.5 rounded-xl border-l-3 border-cyan-400 bg-slate-950/80 hover:bg-slate-800/90 text-xs transition-colors cursor-pointer group/quote flex items-start gap-2 shadow-sm"
+              class="mb-1.5 max-w-[92%] sm:max-w-2xl text-left px-2.5 sm:px-3 py-1.5 rounded-xl border-l-3 border-cyan-400 bg-slate-950/80 hover:bg-slate-800/90 text-xs transition-colors cursor-pointer group/quote flex items-start gap-2 shadow-sm"
               title="Jump to quoted message"
             >
               <Reply class="w-3 h-3 text-cyan-400 mt-0.5 flex-shrink-0 group-hover/quote:translate-x-0.5 transition-transform" />
@@ -812,7 +835,7 @@
           {#if msg.type === 'text'}
             {@const textPreview = getTextPreview(msg.body, isExpanded(msg.id))}
             <div
-              class="relative max-w-2xl px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
+              class="relative max-w-[88%] sm:max-w-xl md:max-w-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
                 ? 'bg-cyan-600 text-white rounded-br-xs'
                 : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-xs'}"
             >
@@ -851,48 +874,48 @@
           {:else if msg.type === 'code' && msg.snippet}
             {@const codeInfo = getCodePreview(msg.snippet.code_content, isExpanded(msg.id))}
             <!-- Code Snippet Card -->
-            <div class="w-full max-w-3xl rounded-xl overflow-hidden border border-slate-750 bg-slate-950 shadow-xl">
+            <div class="w-full max-w-[96%] sm:max-w-2xl md:max-w-3xl rounded-xl overflow-hidden border border-slate-750 bg-slate-950 shadow-xl">
               <!-- Code Card Header -->
-              <div class="flex items-center justify-between px-4 py-2 bg-slate-900/90 border-b border-slate-800">
-                <div class="flex items-center gap-2 min-w-0">
-                  <span class="text-xs font-bold font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60 uppercase">
+              <div class="flex items-center justify-between px-2.5 sm:px-4 py-1.5 sm:py-2 bg-slate-900/90 border-b border-slate-800 gap-1.5">
+                <div class="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                  <span class="text-[10px] sm:text-xs font-bold font-mono px-1.5 sm:px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60 uppercase flex-shrink-0">
                     {msg.snippet.language}
                   </span>
-                  <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                  <span class="text-[10px] sm:text-[11px] font-mono px-1.5 sm:px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex-shrink-0">
                     {codeInfo.totalLines} lines
                   </span>
                   {#if msg.body}
-                    <span class="text-xs text-slate-300 font-mono truncate max-w-sm">
+                    <span class="text-xs text-slate-300 font-mono truncate max-w-[100px] sm:max-w-sm hidden xs:inline">
                       {msg.body}
                     </span>
                   {/if}
                 </div>
 
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                   <!-- Diff Button if previous snippet exists -->
                   {#if prevSnippet}
                     <button
                       onclick={() => openDiff(prevSnippet, msg)}
-                      class="flex items-center gap-1 px-2.5 py-1 text-xs text-indigo-300 hover:text-indigo-200 bg-indigo-950/60 hover:bg-indigo-900/70 border border-indigo-700/50 rounded-lg transition-colors cursor-pointer"
+                      class="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs text-indigo-300 hover:text-indigo-200 bg-indigo-950/60 hover:bg-indigo-900/70 border border-indigo-700/50 rounded-lg transition-colors cursor-pointer"
                       title="Compare side-by-side with previous snippet"
                     >
                       <GitCompare class="w-3.5 h-3.5" />
-                      <span>Compare Diff</span>
+                      <span class="hidden sm:inline">Diff</span>
                     </button>
                   {/if}
 
                   <!-- Copy Raw Button -->
                   <button
                     onclick={() => copyCodeRaw(msg.id, msg.snippet.code_content)}
-                    class="flex items-center gap-1 px-2.5 py-1 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors cursor-pointer"
+                    class="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors cursor-pointer"
                     title="Copy Raw Code"
                   >
                     {#if copiedId === msg.id}
                       <Check class="w-3.5 h-3.5 text-emerald-400" />
-                      <span class="text-emerald-400">Copied!</span>
+                      <span class="text-emerald-400 text-xs hidden sm:inline">Copied!</span>
                     {:else}
                       <Copy class="w-3.5 h-3.5" />
-                      <span>Copy Raw</span>
+                      <span class="hidden sm:inline">Copy</span>
                     {/if}
                   </button>
 
@@ -900,15 +923,15 @@
                   {#if codeInfo.isLong}
                     <button
                       onclick={() => toggleExpand(msg.id)}
-                      class="flex items-center gap-1 px-2.5 py-1 text-xs text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-900/70 border border-cyan-800/60 rounded-lg transition-colors cursor-pointer"
+                      class="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-900/70 border border-cyan-800/60 rounded-lg transition-colors cursor-pointer"
                       title={isExpanded(msg.id) ? "Collapse snippet" : "Expand snippet"}
                     >
                       {#if isExpanded(msg.id)}
                         <ChevronUp class="w-3.5 h-3.5" />
-                        <span>Collapse</span>
+                        <span class="hidden sm:inline">Less</span>
                       {:else}
                         <ChevronDown class="w-3.5 h-3.5" />
-                        <span>Expand</span>
+                        <span class="hidden sm:inline">More</span>
                       {/if}
                     </button>
                   {/if}
@@ -917,12 +940,12 @@
 
               <!-- Code Lines with numbering -->
               <div class="relative">
-                <div class="p-3 overflow-x-auto text-xs font-mono leading-relaxed bg-slate-950 text-slate-200 {isExpanded(msg.id) ? 'max-h-[520px] overflow-y-auto' : ''}">
+                <div class="p-2.5 sm:p-3 overflow-x-auto text-[11px] sm:text-xs font-mono leading-relaxed bg-slate-950 text-slate-200 {isExpanded(msg.id) ? 'max-h-[520px] overflow-y-auto' : ''}">
                   <table class="border-collapse w-full">
                     <tbody>
                       {#each codeInfo.displayLines as line, lIdx}
                         <tr class="hover:bg-slate-900/70 transition-colors">
-                          <td class="pr-4 py-0.5 text-right text-slate-600 select-none w-10 font-mono text-[11px] align-top">
+                          <td class="pr-2 sm:pr-4 py-0.5 text-right text-slate-600 select-none w-8 sm:w-10 font-mono text-[10px] sm:text-[11px] align-top">
                             {lIdx + 1}
                           </td>
                           <td class="py-0.5 whitespace-pre font-mono text-slate-200 break-normal">
@@ -936,23 +959,24 @@
 
                 <!-- Collapsed Bottom Bar with Gradient Overlay -->
                 {#if codeInfo.isLong && !isExpanded(msg.id)}
-                  <div class="relative bg-gradient-to-b from-slate-950/50 via-slate-900/95 to-slate-900 border-t border-slate-800/80 px-4 py-2 flex items-center justify-between">
-                    <span class="text-[11px] font-mono text-slate-400">
-                      Showing 14 of {codeInfo.totalLines} lines ({codeInfo.hiddenLines} hidden)
+                  <div class="relative bg-gradient-to-b from-slate-950/50 via-slate-900/95 to-slate-900 border-t border-slate-800/80 px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-2">
+                    <span class="text-[10px] sm:text-[11px] font-mono text-slate-400 truncate">
+                      14 of {codeInfo.totalLines} lines ({codeInfo.hiddenLines} hidden)
                     </span>
                     <button
                       type="button"
                       onclick={() => toggleExpand(msg.id)}
-                      class="flex items-center gap-1.5 px-3 py-1 bg-cyan-950 hover:bg-cyan-900/80 border border-cyan-800 text-cyan-300 hover:text-white rounded-lg text-xs font-mono font-medium shadow transition-colors cursor-pointer active:scale-95"
+                      class="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 bg-cyan-950 hover:bg-cyan-900/80 border border-cyan-800 text-cyan-300 hover:text-white rounded-lg text-xs font-mono font-medium shadow transition-colors cursor-pointer active:scale-95 flex-shrink-0"
                     >
                       <ChevronDown class="w-3.5 h-3.5" />
-                      <span>Expand snippet ({codeInfo.totalLines} lines)</span>
+                      <span class="hidden sm:inline">Expand snippet ({codeInfo.totalLines} lines)</span>
+                      <span class="sm:hidden">Expand ({codeInfo.totalLines})</span>
                     </button>
                   </div>
                 {:else if codeInfo.isLong && isExpanded(msg.id)}
                   <!-- Expanded Bottom Collapse Footer -->
-                  <div class="bg-slate-900/90 border-t border-slate-800 px-4 py-1.5 flex items-center justify-between text-xs font-mono">
-                    <span class="text-[11px] text-slate-400">
+                  <div class="bg-slate-900/90 border-t border-slate-800 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs font-mono">
+                    <span class="text-[10px] sm:text-[11px] text-slate-400">
                       All {codeInfo.totalLines} lines visible
                     </span>
                     <button
@@ -970,7 +994,9 @@
 
           {:else if msg.type === 'file' && msg.transfer}
             <!-- File or Folder Transfer Bubble -->
-            <FileCard transfer={msg.transfer} isOutgoing={isMe} />
+            <div class="w-full max-w-[92%] sm:max-w-md">
+              <FileCard transfer={msg.transfer} isOutgoing={isMe} />
+            </div>
           {/if}
         </div>
       {/each}
@@ -982,7 +1008,7 @@
     <button
       type="button"
       onclick={() => scrollToBottom(true)}
-      class="absolute bottom-24 right-8 z-30 flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/95 hover:bg-slate-800 text-slate-200 border border-slate-750 hover:border-cyan-500/60 shadow-2xl backdrop-blur-md text-xs font-mono transition-all duration-200 active:scale-95 cursor-pointer group"
+      class="absolute bottom-20 sm:bottom-24 right-4 sm:right-8 z-30 flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/95 hover:bg-slate-800 text-slate-200 border border-slate-750 hover:border-cyan-500/60 shadow-2xl backdrop-blur-md text-xs font-mono transition-all duration-200 active:scale-95 cursor-pointer group"
       title="Scroll to latest messages"
     >
       <ChevronDown class="w-4 h-4 text-cyan-400 group-hover:translate-y-0.5 transition-transform" />
@@ -1006,20 +1032,20 @@
   {/if}
 
   <!-- Footer Input Area -->
-  <footer class="p-4 bg-slate-950/95 border-t border-slate-800 flex-shrink-0">
-    <div class="relative flex flex-col bg-slate-900 border border-slate-700/80 rounded-2xl shadow-xl focus-within:border-cyan-500/80 focus-within:ring-1 focus-within:ring-cyan-500/40 transition-all">
+  <footer class="p-2 sm:p-3.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-slate-950/95 border-t border-slate-800 flex-shrink-0">
+    <div class="relative flex flex-col bg-slate-900 border border-slate-700/80 rounded-xl sm:rounded-2xl shadow-xl focus-within:border-cyan-500/80 focus-within:ring-1 focus-within:ring-cyan-500/40 transition-all">
       
       <!-- Replying Banner -->
       {#if replyingTo}
-        <div class="flex items-center justify-between px-3.5 py-2 bg-slate-950/90 border-b border-slate-800 rounded-t-2xl animate-in slide-in-from-bottom duration-150 text-xs">
-          <div class="flex items-center gap-2.5 min-w-0">
-            <div class="w-6 h-6 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-800/60 flex items-center justify-center flex-shrink-0">
-              <Reply class="w-3.5 h-3.5" />
+        <div class="flex items-center justify-between px-3 py-1.5 sm:px-3.5 sm:py-2 bg-slate-950/90 border-b border-slate-800 rounded-t-xl sm:rounded-t-2xl animate-in slide-in-from-bottom duration-150 text-xs">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-800/60 flex items-center justify-center flex-shrink-0">
+              <Reply class="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             </div>
             <div class="min-w-0">
               <div class="flex items-center gap-1.5">
-                <span class="text-[11px] font-mono text-slate-400">Replying to</span>
-                <span class="text-[11px] font-mono font-bold text-cyan-300">
+                <span class="text-[10px] sm:text-[11px] font-mono text-slate-400">Replying to</span>
+                <span class="text-[10px] sm:text-[11px] font-mono font-bold text-cyan-300 truncate max-w-[120px] sm:max-w-none">
                   {getSenderDisplayName(replyingTo.sender_id)}
                 </span>
                 {#if replyingTo.type === 'code'}
@@ -1032,7 +1058,7 @@
                   </span>
                 {/if}
               </div>
-              <p class="text-[11px] text-slate-400 truncate max-w-md font-sans">
+              <p class="text-[10px] sm:text-[11px] text-slate-400 truncate max-w-[180px] xs:max-w-xs sm:max-w-md font-sans">
                 {getReplySnippet(replyingTo)}
               </p>
             </div>
@@ -1040,7 +1066,7 @@
 
           <button
             onclick={cancelReply}
-            class="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+            class="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer flex-shrink-0"
             title="Cancel reply (Esc)"
           >
             <X class="w-4 h-4" />
@@ -1054,20 +1080,20 @@
         bind:value={textInput}
         onkeydown={handleKeyDown}
         placeholder={replyingTo
-          ? `Replying to ${getSenderDisplayName(replyingTo.sender_id)}... (Esc to cancel)`
-          : (isBroadcast ? "Type message to LAN broadcast (Shift+Enter for new line, Ctrl+V to paste images/code)..." : `Type direct message to ${selectedPeer?.display_name}...`)}
-        rows="2"
-        class="w-full bg-transparent text-slate-100 placeholder-slate-500 text-sm p-3.5 focus:outline-none resize-none font-sans"
+          ? `Replying to ${getSenderDisplayName(replyingTo.sender_id)}...`
+          : (isBroadcast ? "Type message to LAN broadcast (Shift+Enter for new line)..." : `Type direct message to ${selectedPeer?.display_name}...`)}
+        rows="1"
+        class="w-full bg-transparent text-slate-100 placeholder-slate-500 text-sm p-2 sm:p-3 focus:outline-none resize-none font-sans min-h-[38px] max-h-32"
       ></textarea>
 
       <!-- Input Toolbar -->
-      <div class="flex items-center justify-between px-3 pb-2.5 pt-1 border-t border-slate-800/60">
+      <div class="flex items-center justify-between px-2 sm:px-3 pb-2 pt-1 border-t border-slate-800/60 gap-1.5">
         <!-- Left tools: Code drawer, File, Folder, Dev-Ignore toggle, Expiration -->
-        <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <div class="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5 min-w-0">
           <!-- Open Code Drawer -->
           <button
             onclick={() => openCodeDrawerWith('')}
-            class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-cyan-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer"
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-cyan-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer flex-shrink-0"
             title="Open Code Snippet Editor"
           >
             <Code class="w-3.5 h-3.5 text-cyan-400" />
@@ -1094,7 +1120,7 @@
           <!-- Attach File -->
           <button
             onclick={() => fileInput.click()}
-            class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-cyan-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer"
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-cyan-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer flex-shrink-0"
             title="Attach a file"
           >
             <Paperclip class="w-3.5 h-3.5 text-cyan-400" />
@@ -1104,7 +1130,7 @@
           <!-- Attach Folder -->
           <button
             onclick={() => folderInput.click()}
-            class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-amber-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer"
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-amber-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer flex-shrink-0"
             title="Attach entire folder (compresses on stream)"
           >
             <FolderUp class="w-3.5 h-3.5 text-amber-400" />
@@ -1114,7 +1140,7 @@
           <!-- Dev-Ignore Filter Toggle -->
           <button
             onclick={() => (devIgnore = !devIgnore)}
-            class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all cursor-pointer {devIgnore
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-mono transition-all cursor-pointer flex-shrink-0 {devIgnore
               ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/80 shadow-xs'
               : 'bg-slate-800 text-slate-400 border border-slate-700 line-through opacity-70'}"
             title="Toggle Dev-Ignore filter (strips .git, node_modules, target, vendor, dist)"
@@ -1124,17 +1150,17 @@
           </button>
 
           <!-- TTL Selector -->
-          <div class="flex items-center gap-1 text-xs text-slate-400 font-mono">
-            <Clock class="w-3.5 h-3.5 text-slate-400 ml-1" />
+          <div class="flex items-center gap-1 text-xs text-slate-400 font-mono flex-shrink-0">
+            <Clock class="w-3 h-3 text-slate-400 hidden xs:inline" />
             <select
               bind:value={expiration}
-              class="bg-slate-800 text-slate-300 text-xs rounded-lg px-2 py-1 border border-slate-700 focus:outline-none focus:border-cyan-500 font-mono cursor-pointer"
+              class="bg-slate-800 text-slate-300 text-[11px] sm:text-xs rounded-lg px-1.5 sm:px-2 py-1 border border-slate-700 focus:outline-none focus:border-cyan-500 font-mono cursor-pointer"
               title="Transfer Expiration Lifecycle"
             >
-              <option value="burn">🔥 Burn on Read (1x)</option>
-              <option value="1h">1 Hour</option>
-              <option value="6h">6 Hours</option>
-              <option value="24h">24 Hours (Default)</option>
+              <option value="burn">🔥 1x</option>
+              <option value="1h">1h</option>
+              <option value="6h">6h</option>
+              <option value="24h">24h</option>
             </select>
           </div>
         </div>
@@ -1143,10 +1169,10 @@
         <button
           onclick={handleSendText}
           disabled={!textInput.trim()}
-          class="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-cyan-600/30 transition-all active:scale-95 cursor-pointer"
+          class="flex items-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-cyan-600/30 transition-all active:scale-95 cursor-pointer flex-shrink-0"
         >
           <Send class="w-3.5 h-3.5" />
-          <span>Send</span>
+          <span class="hidden xs:inline">Send</span>
         </button>
       </div>
     </div>

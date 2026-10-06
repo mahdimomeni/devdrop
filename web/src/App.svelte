@@ -25,6 +25,14 @@
   let isLoadingOlder = $state(false);
   let unreadCounts = $state({});
   let isWsConnected = $state(false);
+  let mobileActiveView = $state('chat'); // 'peers' | 'chat'
+
+  let totalUnreads = $derived.by(() => {
+    return Object.entries(unreadCounts).reduce((acc, [key, count]) => {
+      if (key === selectedPeerId) return acc;
+      return acc + (count || 0);
+    }, 0);
+  });
 
   // Upload Progress State
   let uploadState = $state({
@@ -53,6 +61,7 @@
 
   async function loadConversation(peerId) {
     selectedPeerId = peerId;
+    mobileActiveView = 'chat';
     // Clear unreads
     unreadCounts = { ...unreadCounts, [peerId]: 0 };
     isLoadingMessages = true;
@@ -296,23 +305,23 @@
   });
 </script>
 
-<main class="h-screen w-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans">
+<main class="h-full w-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans min-h-0">
   
   <!-- Disconnected Network Alert Banner -->
   {#if !isWsConnected}
-    <div class="bg-amber-600/90 text-slate-950 px-4 py-1.5 text-xs font-mono font-medium flex items-center justify-center gap-2 z-50">
-      <WifiOff class="w-3.5 h-3.5" />
-      <span>Reconnecting to DevDrop LAN node...</span>
+    <div class="bg-amber-600/90 text-slate-950 px-3 sm:px-4 py-1.5 text-xs font-mono font-medium flex items-center justify-center gap-2 z-50 truncate flex-shrink-0">
+      <WifiOff class="w-3.5 h-3.5 flex-shrink-0" />
+      <span class="truncate">Reconnecting to DevDrop LAN node...</span>
     </div>
   {/if}
 
   <!-- Active Upload Progress Floating Bar -->
   {#if uploadState.isUploading}
-    <div class="fixed top-4 right-4 z-50 bg-slate-900 border border-cyan-500/50 rounded-xl p-3.5 shadow-2xl flex flex-col gap-2 min-w-[280px] animate-in fade-in slide-in-from-top-4 duration-200">
+    <div class="fixed top-3 sm:top-4 right-3 sm:right-4 left-3 sm:left-auto z-50 bg-slate-900 border border-cyan-500/50 rounded-xl p-3 sm:p-3.5 shadow-2xl flex flex-col gap-2 min-w-0 sm:min-w-[280px] animate-in fade-in slide-in-from-top-4 duration-200">
       <div class="flex items-center justify-between text-xs font-mono">
         <span class="flex items-center gap-1.5 text-cyan-400 font-semibold truncate max-w-[180px]">
-          <Loader2 class="w-3.5 h-3.5 animate-spin" />
-          {uploadState.fileName}
+          <Loader2 class="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+          <span class="truncate">{uploadState.fileName}</span>
         </span>
         <span class="text-slate-300 font-bold">{uploadState.progress}%</span>
       </div>
@@ -328,41 +337,51 @@
 
   <!-- Floating Toast Alert -->
   {#if toast}
-    <div class="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-xl border shadow-2xl text-xs font-mono animate-in fade-in slide-in-from-bottom-2 duration-150 {toast.type === 'error' ? 'bg-rose-950 border-rose-800 text-rose-200' : 'bg-slate-900 border-cyan-500/50 text-slate-100'}">
+    <div class="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-50 flex items-center gap-2.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border shadow-2xl text-xs font-mono animate-in fade-in slide-in-from-bottom-2 duration-150 {toast.type === 'error' ? 'bg-rose-950 border-rose-800 text-rose-200' : 'bg-slate-900 border-cyan-500/50 text-slate-100'} max-w-sm mx-auto sm:mx-0">
       {#if toast.type === 'error'}
         <AlertCircle class="w-4 h-4 text-rose-400 flex-shrink-0" />
       {:else}
         <CheckCircle2 class="w-4 h-4 text-emerald-400 flex-shrink-0" />
       {/if}
-      <span>{toast.message}</span>
+      <span class="truncate">{toast.message}</span>
     </div>
   {/if}
 
   <!-- Main App Layout -->
-  <div class="flex-1 flex overflow-hidden">
+  <div class="flex-1 flex overflow-hidden relative min-h-0 w-full">
     <!-- Left Sidebar: Peer List -->
-    <PeerList
-      {currentUser}
-      {peers}
-      {selectedPeerId}
-      {unreadCounts}
-      onSelectPeer={loadConversation}
-      onUpdateName={handleUpdateName}
-    />
+    <div class="{mobileActiveView === 'peers' ? 'flex' : 'hidden'} md:flex w-full md:w-80 h-full flex-shrink-0 min-h-0">
+      <PeerList
+        {currentUser}
+        {peers}
+        {selectedPeerId}
+        {unreadCounts}
+        onSelectPeer={(id) => {
+          loadConversation(id);
+          mobileActiveView = 'chat';
+        }}
+        onUpdateName={handleUpdateName}
+        onCloseMobile={() => (mobileActiveView = 'chat')}
+      />
+    </div>
 
     <!-- Main Content Area: Chat View -->
-    <ChatView
-      {currentUser}
-      {selectedPeer}
-      {peers}
-      {messages}
-      {hasMore}
-      {isLoadingMessages}
-      {isLoadingOlder}
-      onLoadOlder={handleLoadOlder}
-      onSendMessage={handleSendMessage}
-      onSendCode={handleSendCode}
-      onUploadFiles={handleUploadFiles}
-    />
+    <div class="{mobileActiveView === 'chat' ? 'flex' : 'hidden'} md:flex flex-1 h-full min-w-0 min-h-0 w-full">
+      <ChatView
+        {currentUser}
+        {selectedPeer}
+        {peers}
+        {messages}
+        {hasMore}
+        {isLoadingMessages}
+        {isLoadingOlder}
+        onLoadOlder={handleLoadOlder}
+        onSendMessage={handleSendMessage}
+        onSendCode={handleSendCode}
+        onUploadFiles={handleUploadFiles}
+        onBackToPeers={() => (mobileActiveView = 'peers')}
+        totalUnreadCount={totalUnreads}
+      />
+    </div>
   </div>
 </main>

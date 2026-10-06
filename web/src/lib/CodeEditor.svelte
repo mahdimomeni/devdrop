@@ -193,18 +193,19 @@
 
 <div class="border-t border-slate-700/80 bg-slate-900/95 backdrop-blur-md flex flex-col shadow-2xl transition-all duration-300">
   <!-- Toolbar Header -->
-  <div class="flex items-center justify-between px-4 py-2.5 bg-slate-950/80 border-b border-slate-800">
-    <div class="flex items-center gap-3">
-      <div class="flex items-center gap-2 text-cyan-400 font-semibold text-xs tracking-wide">
+  <div class="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-950/80 border-b border-slate-800 gap-2">
+    <div class="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
+      <div class="flex items-center gap-1.5 text-cyan-400 font-semibold text-xs tracking-wide flex-shrink-0">
         <Code2 class="w-4 h-4" />
-        <span>CODE SNIPPET DRAWER</span>
+        <span class="hidden sm:inline">CODE SNIPPET DRAWER</span>
+        <span class="sm:hidden font-mono font-bold">SNIPPET</span>
       </div>
 
       <!-- Language Selector -->
       <select
         value={selectedLang}
         onchange={(e) => updateLanguage(e.target.value)}
-        class="bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs rounded-lg px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-cyan-500 font-mono transition-colors cursor-pointer"
+        class="bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs rounded-lg px-2 sm:px-2.5 py-1 border border-slate-700 focus:outline-none focus:border-cyan-500 font-mono transition-colors cursor-pointer"
       >
         {#each supportedLanguages as lang}
           <option value={lang.id}>{lang.name}</option>
@@ -214,15 +215,15 @@
       <!-- Beautify Button -->
       <button
         onclick={formatBeautify}
-        class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-cyan-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors cursor-pointer"
+        class="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-cyan-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors cursor-pointer"
         title="Format / Beautify code"
       >
         <Wand2 class="w-3.5 h-3.5 text-cyan-400" />
-        <span>Format / Beautify</span>
+        <span class="hidden xs:inline">Format</span>
       </button>
 
       {#if formatMessage}
-        <span class="text-xs text-cyan-400 font-mono animate-fade-in">
+        <span class="text-[10px] sm:text-xs text-cyan-400 font-mono animate-fade-in truncate">
           {formatMessage}
         </span>
       {/if}
@@ -231,7 +232,7 @@
     <!-- Close Drawer -->
     <button
       onclick={onClose}
-      class="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+      class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0"
       title="Close Editor"
     >
       <X class="w-4 h-4" />
@@ -239,11 +240,11 @@
   </div>
 
   <!-- Optional Description input -->
-  <div class="px-4 py-2 bg-slate-900/50 border-b border-slate-800/80">
+  <div class="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-900/50 border-b border-slate-800/80">
     <input
       type="text"
       bind:value={comment}
-      placeholder="Snippet note or comment (optional, e.g. 'Fix for concurrency bug in dispatcher')..."
+      placeholder="Snippet note or comment (optional)..."
       class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-sans"
     />
   </div>
@@ -251,18 +252,18 @@
   <!-- CodeMirror Container -->
   <div
     bind:this={editorContainer}
-    class="h-64 sm:h-72 w-full overflow-hidden bg-slate-950 text-slate-200"
+    class="h-48 xs:h-56 sm:h-72 w-full overflow-hidden bg-slate-950 text-slate-200"
   ></div>
 
   <!-- Action Bar -->
-  <div class="flex items-center justify-between px-4 py-2.5 bg-slate-950/90 border-t border-slate-800">
-    <div class="text-[11px] text-slate-500 font-mono flex items-center gap-2">
+  <div class="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-950/90 border-t border-slate-800">
+    <div class="text-[11px] text-slate-500 font-mono hidden xs:flex items-center gap-2">
       <span>Language: <strong class="text-slate-300">{selectedLang}</strong></span>
       <span>•</span>
-      <span>Tab / Indent: 2 spaces</span>
+      <span>2 spaces</span>
     </div>
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 w-full xs:w-auto justify-end">
       <button
         onclick={onClose}
         class="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
@@ -272,10 +273,11 @@
 
       <button
         onclick={handleSend}
-        class="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-lg shadow-sm shadow-cyan-600/30 transition-all active:scale-95 cursor-pointer"
+        class="flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 rounded-lg shadow-sm shadow-cyan-600/30 transition-all active:scale-95 cursor-pointer"
       >
         <Send class="w-3.5 h-3.5" />
-        <span>Drop Snippet to LAN</span>
+        <span class="hidden xs:inline">Drop Snippet to LAN</span>
+        <span class="xs:hidden">Drop Snippet</span>
       </button>
     </div>
   </div>

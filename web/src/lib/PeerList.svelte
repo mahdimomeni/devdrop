@@ -21,7 +21,8 @@
     selectedPeerId = 'broadcast',
     unreadCounts = {},
     onSelectPeer,
-    onUpdateName
+    onUpdateName,
+    onCloseMobile = null,
   } = $props();
 
   let searchQuery = $state('');
@@ -69,9 +70,9 @@
   });
 </script>
 
-<aside class="w-80 h-full flex flex-col bg-slate-950 border-r border-slate-800/80 select-none">
+<aside class="w-full md:w-80 h-full flex flex-col bg-slate-950 border-r border-slate-800/80 select-none flex-shrink-0 min-h-0">
   <!-- My Profile Section -->
-  <div class="p-4 border-b border-slate-800/90 bg-slate-900/60">
+  <div class="p-3.5 sm:p-4 border-b border-slate-800/90 bg-slate-900/60 pt-[max(0.875rem,env(safe-area-inset-top))] flex-shrink-0">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
         <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400/50"></div>
@@ -79,9 +80,22 @@
           DevDrop LAN Node
         </span>
       </div>
-      <span class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
-        {onlineCount} {onlineCount === 1 ? 'Peer Online' : 'Peers Online'}
-      </span>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
+          {onlineCount} {onlineCount === 1 ? 'Peer' : 'Peers'} Online
+        </span>
+        {#if onCloseMobile}
+          <button
+            type="button"
+            onclick={onCloseMobile}
+            class="md:hidden flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/60 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer"
+            title="Return to conversation"
+          >
+            <MessageSquare class="w-3.5 h-3.5" />
+            <span>Chat</span>
+          </button>
+        {/if}
+      </div>
     </div>
 
     <!-- My Avatar & Name -->
@@ -139,7 +153,7 @@
   </div>
 
   <!-- Search Filter -->
-  <div class="p-3 border-b border-slate-800/60 bg-slate-950">
+  <div class="p-3 border-b border-slate-800/60 bg-slate-950 flex-shrink-0">
     <div class="relative">
       <Search class="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
       <input
@@ -160,7 +174,7 @@
   </div>
 
   <!-- Broadcast & Peer Channel List -->
-  <div class="flex-1 overflow-y-auto p-2 space-y-1">
+  <div class="flex-1 overflow-y-auto min-h-0 p-2 space-y-1">
     <!-- Broadcast Channel -->
     <button
       onclick={() => onSelectPeer('broadcast')}
@@ -256,7 +270,7 @@
   </div>
 
   <!-- LAN Footer Status -->
-  <div class="p-3 bg-slate-950 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono flex items-center justify-between">
+  <div class="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-slate-950 border-t border-slate-800/80 text-[10px] text-slate-500 font-mono flex items-center justify-between">
     <span class="flex items-center gap-1.5">
       <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
       <span>Zero-Config LAN</span>
