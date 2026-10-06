@@ -29,6 +29,7 @@ import (
 func main() {
 	portFlag := flag.Int("port", 8080, "Port to listen on")
 	dataDirFlag := flag.String("data", "./data", "Directory to store database and uploaded files")
+	passwordFlag := flag.String("password", "", "Access password for DevDrop LAN")
 	flag.Parse()
 
 	port := *portFlag
@@ -49,6 +50,23 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
+
+	// Check command-line flag or environment variable for password
+	password := *passwordFlag
+	if envPass := os.Getenv("DEVDROP_PASSWORD"); envPass != "" {
+		password = envPass
+	} else if envPass := os.Getenv("PASSWORD"); envPass != "" {
+		password = envPass
+	}
+
+	if err := db.SyncPassword(password); err != nil {
+		log.Fatalf("Failed to configure access password: %v", err)
+	}
+	if password != "" {
+		log.Println("Access password configured from CLI/environment")
+	} else {
+		log.Println("DevDrop running without access password (set via -password or DEVDROP_PASSWORD)")
+	}
 
 	// 2. Initialize WebSocket Hub
 	wsHub := hub.NewHub(db)
@@ -135,7 +153,7 @@ func main() {
 	}
 
 	// Print startup information with detected LAN IPs
-	printBanner(port)
+	printBanner(port, db)
 
 	// Graceful shutdown
 	go func() {
@@ -155,7 +173,7 @@ func main() {
 	}
 }
 
-func printBanner(port int) {
+func printBanner(port int, db *database.DB) {
 	fmt.Println()
 	fmt.Println("  ┌──────────────────────────────────────────────────────────┐")
 	fmt.Println("  │                      DevDrop LAN                         │")
@@ -166,6 +184,12 @@ func printBanner(port int) {
 	ips := getLocalIPs()
 	for _, ip := range ips {
 		fmt.Printf("   > Network:  http://%s:%d\n", ip, port)
+	}
+
+	if hasPass, _ := db.HasPassword(); hasPass {
+		fmt.Println("   > Security: Password Protected (Configured via CLI / ENV)")
+	} else {
+		fmt.Println("   > Security: Open Access (Set password via -password or DEVDROP_PASSWORD)")
 	}
 	fmt.Println()
 }

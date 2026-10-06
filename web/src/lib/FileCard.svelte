@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { formatBytes, formatExpirationCountdown } from './api.js';
+  import { formatBytes, formatExpirationCountdown, getDownloadUrl } from './api.js';
   import { Download, File, FolderArchive, Flame, Clock, AlertTriangle, Image as ImageIcon, ExternalLink } from 'lucide-svelte';
 
   let { transfer, isOutgoing = false } = $props();
@@ -32,7 +32,7 @@
     return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
   });
 
-  let downloadUrl = $derived(`/api/transfers/${transfer.message_id}/download`);
+  let downloadUrl = $derived(getDownloadUrl(transfer.message_id));
 </script>
 
 <div class="flex flex-col gap-2.5 p-3.5 rounded-xl border transition-all duration-200 {isOutgoing ? 'bg-slate-800/90 border-slate-700/80 text-slate-100' : 'bg-slate-900/90 border-slate-800 text-slate-100'} shadow-lg max-w-md w-full">

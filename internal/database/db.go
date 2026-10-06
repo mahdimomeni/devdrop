@@ -1,7 +1,9 @@
 package database
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -10,12 +12,23 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
 type DB struct {
 	db *sql.DB
 	mu sync.RWMutex
+}
+
+type TrustedDevice struct {
+	Token      string    `json:"token,omitempty"`
+	DeviceName string    `json:"device_name"`
+	IPAddress  string    `json:"ip_address"`
+	UserAgent  string    `json:"user_agent"`
+	UserID     string    `json:"user_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastUsedAt time.Time `json:"last_used_at"`
 }
 
 type User struct {
@@ -150,6 +163,24 @@ func InitDB(dataDir string) (*DB, error) {
 	ON messages(receiver_id, created_at);
 	CREATE INDEX IF NOT EXISTS idx_messages_created_at 
 	ON messages(created_at);
+
+	CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS trusted_devices (
+		token TEXT PRIMARY KEY,
+		device_name TEXT NOT NULL,
+		ip_address TEXT NOT NULL,
+		user_agent TEXT NOT NULL,
+		user_id TEXT,
+		created_at DATETIME NOT NULL,
+		last_used_at DATETIME NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_trusted_devices_token ON trusted_devices(token);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -947,5 +978,210 @@ func (d *DB) ToggleReaction(messageID, userID, emoji string) ([]ReactionGroup, b
 	}
 
 	return result, added, senderID, receiverID, nil
+}
+
+// Authentication & Trusted Device Operations
+
+// HasPassword checks if an access password has been configured
+func (d *DB) HasPassword() (bool, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var val string
+	err := d.db.QueryRow("SELECT value FROM app_settings WHERE key = 'password_hash'").Scan(&val)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(val) != "", nil
+}
+
+// SyncPassword synchronizes the master password from CLI or environment variables.
+// If plainPassword is empty, password protection is disabled.
+// If plainPassword has changed, all existing trusted devices are revoked.
+// If plainPassword is unchanged, existing trusted devices remain valid across restarts.
+func (d *DB) SyncPassword(plainPassword string) error {
+	plainPassword = strings.TrimSpace(plainPassword)
+	if plainPassword == "" {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		_, _ = d.db.Exec("DELETE FROM app_settings WHERE key = 'password_hash'")
+		_, _ = d.db.Exec("DELETE FROM trusted_devices")
+		return nil
+	}
+
+	// Check if matches existing configured password
+	matches, err := d.VerifyPassword(plainPassword)
+	if err == nil && matches {
+		return nil
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	now := time.Now().UTC()
+	query := `
+	INSERT INTO app_settings (key, value, updated_at)
+	VALUES ('password_hash', ?, ?)
+	ON CONFLICT(key) DO UPDATE SET
+		value = excluded.value,
+		updated_at = excluded.updated_at;
+	`
+	if _, err := d.db.Exec(query, string(hashed), now); err != nil {
+		return err
+	}
+
+	// Invalidate previous trusted devices since password was changed
+	_, _ = d.db.Exec("DELETE FROM trusted_devices")
+	return nil
+}
+
+// SetPassword updates or creates the master password hash
+func (d *DB) SetPassword(plainPassword string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	plainPassword = strings.TrimSpace(plainPassword)
+	if plainPassword == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	now := time.Now().UTC()
+	query := `
+	INSERT INTO app_settings (key, value, updated_at)
+	VALUES ('password_hash', ?, ?)
+	ON CONFLICT(key) DO UPDATE SET
+		value = excluded.value,
+		updated_at = excluded.updated_at;
+	`
+	_, err = d.db.Exec(query, string(hashed), now)
+	return err
+}
+
+// VerifyPassword compares the provided plain text password with the stored hash
+func (d *DB) VerifyPassword(plainPassword string) (bool, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var hash string
+	err := d.db.QueryRow("SELECT value FROM app_settings WHERE key = 'password_hash'").Scan(&hash)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(plainPassword))
+	return err == nil, nil
+}
+
+// RegisterTrustedDevice generates a secure random token and registers the device
+func (d *DB) RegisterTrustedDevice(deviceName, ipAddress, userAgent, userID string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", fmt.Errorf("failed to generate random device token: %w", err)
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	if strings.TrimSpace(deviceName) == "" {
+		deviceName = "Trusted Device"
+	}
+	now := time.Now().UTC()
+
+	query := `
+	INSERT INTO trusted_devices (token, device_name, ip_address, user_agent, user_id, created_at, last_used_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?);
+	`
+	_, err := d.db.Exec(query, token, deviceName, ipAddress, userAgent, userID, now, now)
+	if err != nil {
+		return "", fmt.Errorf("failed to register trusted device: %w", err)
+	}
+	return token, nil
+}
+
+// ValidateTrustedDevice verifies if the token exists and updates last_used_at
+func (d *DB) ValidateTrustedDevice(token string) (bool, *TrustedDevice, error) {
+	if strings.TrimSpace(token) == "" {
+		return false, nil, nil
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `
+	SELECT token, device_name, ip_address, user_agent, COALESCE(user_id, ''), created_at, last_used_at
+	FROM trusted_devices
+	WHERE token = ?;
+	`
+	var dev TrustedDevice
+	err := d.db.QueryRow(query, token).Scan(
+		&dev.Token,
+		&dev.DeviceName,
+		&dev.IPAddress,
+		&dev.UserAgent,
+		&dev.UserID,
+		&dev.CreatedAt,
+		&dev.LastUsedAt,
+	)
+	if err == sql.ErrNoRows {
+		return false, nil, nil
+	}
+	if err != nil {
+		return false, nil, err
+	}
+
+	now := time.Now().UTC()
+	_, _ = d.db.Exec("UPDATE trusted_devices SET last_used_at = ? WHERE token = ?", now, token)
+	dev.LastUsedAt = now
+
+	return true, &dev, nil
+}
+
+// RevokeTrustedDevice removes a single device token
+func (d *DB) RevokeTrustedDevice(token string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec("DELETE FROM trusted_devices WHERE token = ?", token)
+	return err
+}
+
+// RevokeAllTrustedDevices removes all trusted devices, optionally keeping exceptToken
+func (d *DB) RevokeAllTrustedDevices(exceptToken string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if strings.TrimSpace(exceptToken) == "" {
+		_, err := d.db.Exec("DELETE FROM trusted_devices")
+		return err
+	}
+	_, err := d.db.Exec("DELETE FROM trusted_devices WHERE token != ?", exceptToken)
+	return err
+}
+
+// GetTrustedDevicesCount returns total active trusted devices
+func (d *DB) GetTrustedDevicesCount() (int, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var count int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM trusted_devices").Scan(&count)
+	return count, err
 }
 

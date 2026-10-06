@@ -288,4 +288,170 @@ func TestReactionFunctionality(t *testing.T) {
 	}
 }
 
+func TestAuthAndTrustedDevices(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "devdrop_auth_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	db, err := InitDB(tempDir)
+	if err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+	defer db.Close()
+
+	// 1. Initial state: has no password
+	hasPass, err := db.HasPassword()
+	if err != nil {
+		t.Fatalf("unexpected error checking password: %v", err)
+	}
+	if hasPass {
+		t.Errorf("expected HasPassword=false on new DB")
+	}
+
+	// 2. Set password
+	err = db.SetPassword("supersecret123")
+	if err != nil {
+		t.Fatalf("failed to set password: %v", err)
+	}
+
+	hasPass, err = db.HasPassword()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasPass {
+		t.Errorf("expected HasPassword=true after SetPassword")
+	}
+
+	// 3. Verify password
+	ok, err := db.VerifyPassword("wrongpass")
+	if err != nil {
+		t.Fatalf("unexpected error on VerifyPassword: %v", err)
+	}
+	if ok {
+		t.Errorf("expected VerifyPassword=false for wrong password")
+	}
+
+	ok, err = db.VerifyPassword("supersecret123")
+	if err != nil {
+		t.Fatalf("unexpected error on VerifyPassword: %v", err)
+	}
+	if !ok {
+		t.Errorf("expected VerifyPassword=true for correct password")
+	}
+
+	// 4. Register trusted devices
+	token1, err := db.RegisterTrustedDevice("Laptop Chrome", "192.168.1.10", "Mozilla/5.0", "user-1")
+	if err != nil {
+		t.Fatalf("failed to register device 1: %v", err)
+	}
+	if token1 == "" {
+		t.Errorf("expected non-empty token")
+	}
+
+	token2, err := db.RegisterTrustedDevice("Phone Safari", "192.168.1.20", "Mobile Safari", "user-2")
+	if err != nil {
+		t.Fatalf("failed to register device 2: %v", err)
+	}
+	if token2 == "" {
+		t.Errorf("expected non-empty token2")
+	}
+
+	count, err := db.GetTrustedDevicesCount()
+	if err != nil || count != 2 {
+		t.Fatalf("expected 2 trusted devices, got %d (err: %v)", count, err)
+	}
+
+	// 5. Validate device
+	valid, dev, err := db.ValidateTrustedDevice(token1)
+	if err != nil {
+		t.Fatalf("failed to validate device: %v", err)
+	}
+	if !valid || dev == nil {
+		t.Fatalf("expected device 1 to be valid")
+	}
+	if dev.DeviceName != "Laptop Chrome" || dev.IPAddress != "192.168.1.10" {
+		t.Errorf("unexpected device data: %+v", dev)
+	}
+
+	// Invalid token check
+	valid, _, err = db.ValidateTrustedDevice("invalid-fake-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if valid {
+		t.Errorf("expected invalid token to return false")
+	}
+
+	// 6. Revoke single device
+	err = db.RevokeTrustedDevice(token1)
+	if err != nil {
+		t.Fatalf("failed to revoke device: %v", err)
+	}
+
+	valid, _, _ = db.ValidateTrustedDevice(token1)
+	if valid {
+		t.Errorf("expected revoked device 1 to be invalid")
+	}
+
+	count, _ = db.GetTrustedDevicesCount()
+	if count != 1 {
+		t.Errorf("expected 1 trusted device remaining, got %d", count)
+	}
+
+	// 7. Revoke all devices
+	err = db.RevokeAllTrustedDevices("")
+	if err != nil {
+		t.Fatalf("failed to revoke all: %v", err)
+	}
+
+	count, _ = db.GetTrustedDevicesCount()
+	if count != 0 {
+		t.Errorf("expected 0 trusted devices after revoke all, got %d", count)
+	}
+
+	// 8. Test SyncPassword from CLI / env
+	err = db.SyncPassword("newcli123")
+	if err != nil {
+		t.Fatalf("failed to sync password: %v", err)
+	}
+	hasPass, _ = db.HasPassword()
+	if !hasPass {
+		t.Errorf("expected has_password=true after sync")
+	}
+
+	t1, _ := db.RegisterTrustedDevice("Device1", "127.0.0.1", "Agent", "user-1")
+
+	// Sync with same password -> device remains valid
+	err = db.SyncPassword("newcli123")
+	if err != nil {
+		t.Fatalf("sync error: %v", err)
+	}
+	valid, _, _ = db.ValidateTrustedDevice(t1)
+	if !valid {
+		t.Errorf("expected device to remain valid when password is unchanged")
+	}
+
+	// Sync with changed password -> old device revoked
+	err = db.SyncPassword("changedpassword456")
+	if err != nil {
+		t.Fatalf("sync error: %v", err)
+	}
+	valid, _, _ = db.ValidateTrustedDevice(t1)
+	if valid {
+		t.Errorf("expected device to be revoked when password is changed")
+	}
+
+	// Sync with empty password -> password protection disabled
+	err = db.SyncPassword("")
+	if err != nil {
+		t.Fatalf("sync error: %v", err)
+	}
+	hasPass, _ = db.HasPassword()
+	if hasPass {
+		t.Errorf("expected has_password=false when empty password synced")
+	}
+}
+
 

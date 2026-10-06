@@ -36,26 +36,39 @@ func NewServerHandler(db *database.DB, h *hub.Hub, tm *transfer.Manager) *Server
 
 // RegisterRoutes configures HTTP routes on a chi.Router
 func (s *ServerHandler) RegisterRoutes(r chi.Router) {
-	r.Get("/ws", s.hub.HandleWebSocket)
+	r.Get("/ws", s.handleWebSocketAuth)
 
 	r.Route("/api", func(api chi.Router) {
-		// User & Profile
-		api.Get("/profile", s.handleGetProfile)
-		api.Put("/profile/name", s.handleUpdateName)
-		api.Get("/peers", s.handleGetPeers)
+		// Public Auth Endpoints
+		api.Route("/auth", func(auth chi.Router) {
+			auth.Get("/status", s.handleAuthStatus)
+			auth.Post("/login", s.handleAuthLogin)
+			auth.Post("/logout", s.handleAuthLogout)
+			auth.Get("/devices", s.handleAuthGetDevices)
+		})
 
-		// Messaging & History
-		api.Get("/messages", s.handleGetMessages)
-		api.Post("/messages", s.handleSendMessage)
-		api.Post("/messages/{id}/reactions", s.handleToggleReaction)
+		// Protected Workspace Endpoints
+		api.Group(func(protected chi.Router) {
+			protected.Use(s.AuthMiddleware)
 
-		// Link Preview
-		api.Get("/preview", s.handleGetLinkPreview)
+			// User & Profile
+			protected.Get("/profile", s.handleGetProfile)
+			protected.Put("/profile/name", s.handleUpdateName)
+			protected.Get("/peers", s.handleGetPeers)
 
-		// File Transfers
-		api.Post("/upload", s.handleUpload)
-		api.Get("/transfers/{id}/download", s.handleDownload)
-		api.Get("/transfers/{id}/meta", s.handleGetTransferMeta)
+			// Messaging & History
+			protected.Get("/messages", s.handleGetMessages)
+			protected.Post("/messages", s.handleSendMessage)
+			protected.Post("/messages/{id}/reactions", s.handleToggleReaction)
+
+			// Link Preview
+			protected.Get("/preview", s.handleGetLinkPreview)
+
+			// File Transfers
+			protected.Post("/upload", s.handleUpload)
+			protected.Get("/transfers/{id}/download", s.handleDownload)
+			protected.Get("/transfers/{id}/meta", s.handleGetTransferMeta)
+		})
 	})
 }
 
@@ -340,6 +353,214 @@ func (s *ServerHandler) handleToggleReaction(w http.ResponseWriter, r *http.Requ
 		"success":   true,
 		"action":    action,
 		"reactions": reactions,
+	})
+}
+
+// ExtractToken extracts authentication token from header, cookie, or query parameter
+func ExtractToken(r *http.Request) string {
+	// 1. Authorization: Bearer <token>
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		parts := strings.SplitN(auth, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	// 2. Custom headers
+	if t := r.Header.Get("X-Device-Token"); t != "" {
+		return strings.TrimSpace(t)
+	}
+	if t := r.Header.Get("X-Auth-Token"); t != "" {
+		return strings.TrimSpace(t)
+	}
+	// 3. Cookie
+	if c, err := r.Cookie("devdrop_auth_token"); err == nil && c.Value != "" {
+		return strings.TrimSpace(c.Value)
+	}
+	// 4. Query param
+	if t := r.URL.Query().Get("token"); t != "" {
+		return strings.TrimSpace(t)
+	}
+	if t := r.URL.Query().Get("auth_token"); t != "" {
+		return strings.TrimSpace(t)
+	}
+	return ""
+}
+
+// AuthMiddleware protects routes when password protection is active
+func (s *ServerHandler) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hasPass, err := s.db.HasPassword()
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// If no password set on this instance, allow traffic
+		if !hasPass {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		token := ExtractToken(r)
+		if token == "" {
+			http.Error(w, "unauthorized: password required", http.StatusUnauthorized)
+			return
+		}
+
+		valid, _, err := s.db.ValidateTrustedDevice(token)
+		if err != nil || !valid {
+			http.Error(w, "unauthorized: invalid or revoked device token", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// handleWebSocketAuth enforces auth before upgrading WS connections
+func (s *ServerHandler) handleWebSocketAuth(w http.ResponseWriter, r *http.Request) {
+	hasPass, err := s.db.HasPassword()
+	if err == nil && hasPass {
+		token := ExtractToken(r)
+		if token == "" {
+			http.Error(w, "unauthorized: password required", http.StatusUnauthorized)
+			return
+		}
+		valid, _, err := s.db.ValidateTrustedDevice(token)
+		if err != nil || !valid {
+			http.Error(w, "unauthorized: invalid or revoked device token", http.StatusUnauthorized)
+			return
+		}
+	}
+	s.hub.HandleWebSocket(w, r)
+}
+
+func (s *ServerHandler) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	hasPass, err := s.db.HasPassword()
+	if err != nil {
+		http.Error(w, "failed to check auth status", http.StatusInternalServerError)
+		return
+	}
+
+	if !hasPass {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"has_password":  false,
+			"authenticated": false,
+			"trusted":       false,
+		})
+		return
+	}
+
+	token := ExtractToken(r)
+	valid, dev, _ := s.db.ValidateTrustedDevice(token)
+	deviceName := ""
+	if dev != nil {
+		deviceName = dev.DeviceName
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"has_password":  true,
+		"authenticated": valid,
+		"trusted":       valid,
+		"device_name":   deviceName,
+	})
+}
+
+func (s *ServerHandler) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	hasPass, err := s.db.HasPassword()
+	if err != nil {
+		http.Error(w, "failed to check auth status", http.StatusInternalServerError)
+		return
+	}
+	if !hasPass {
+		http.Error(w, "no password configured; use setup first", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Password    string `json:"password"`
+		TrustDevice bool   `json:"trust_device"`
+		DeviceName  string `json:"device_name"`
+		UserID      string `json:"user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	ok, err := s.db.VerifyPassword(req.Password)
+	if err != nil || !ok {
+		http.Error(w, "incorrect password", http.StatusUnauthorized)
+		return
+	}
+
+	ip := hub.ExtractClientIP(r)
+	ua := r.UserAgent()
+	if req.DeviceName == "" {
+		req.DeviceName = "Trusted Device"
+	}
+
+	token, err := s.db.RegisterTrustedDevice(req.DeviceName, ip, ua, req.UserID)
+	if err != nil {
+		http.Error(w, "failed to register trusted device", http.StatusInternalServerError)
+		return
+	}
+
+	maxAge := 365 * 24 * 3600
+	if !req.TrustDevice {
+		maxAge = 24 * 3600
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "devdrop_auth_token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"token":   token,
+	})
+}
+
+func (s *ServerHandler) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	token := ExtractToken(r)
+	if token != "" {
+		_ = s.db.RevokeTrustedDevice(token)
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "devdrop_auth_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+}
+
+func (s *ServerHandler) handleAuthGetDevices(w http.ResponseWriter, r *http.Request) {
+	token := ExtractToken(r)
+	valid, dev, _ := s.db.ValidateTrustedDevice(token)
+	if !valid {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	count, _ := s.db.GetTrustedDevicesCount()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"total_trusted_devices": count,
+		"current_device":        dev,
 	})
 }
 

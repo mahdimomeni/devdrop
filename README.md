@@ -154,6 +154,18 @@ When started, DevDrop detects your local LAN network adapters and prints accessi
 |------|-------------|---------|-------------|
 | `-port` | `PORT` | `8080` | Port to listen on |
 | `-data` | `DATA_DIR` | `./data` | Directory for SQLite DB and upload files |
+| `-password` | `DEVDROP_PASSWORD` / `PASSWORD` | *Empty* | Access password for the LAN node (managed exclusively via CLI or environment variable) |
+
+---
+
+## 🔒 Access Password & Trusted Devices
+
+DevDrop supports access protection with seamless trusted device management:
+1. **Host-Controlled Password**: The password cannot be created or changed from the browser UI by any visitor. It is configured and changed exclusively on the server host via `-password <secret>` or `DEVDROP_PASSWORD=<secret>`. If no password is provided, the node runs with open access.
+2. **First-Time Visit Authentication**: When a user on the LAN accesses the node for the first time, they are prompted to enter the password. With **Trust this device** checked (default), a cryptographically secure device token is issued and saved to their browser.
+3. **Subsequent Visits**: On returning visits, the browser automatically authenticates with the trusted device token without prompting for the password again.
+4. **Security & Device Management**: Click the **Security (Shield)** icon in the header to view trust status, device name, lock the current device (to re-require the password), and see the total number of trusted devices on the node.
+5. **Rotating the Password**: When the host changes the password via CLI or environment variable, existing device trusts are automatically revoked so all devices must enter the new password on their next visit.
 
 ---
 

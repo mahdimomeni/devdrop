@@ -12,6 +12,7 @@
     Check,
     GitCompare,
     Shield,
+    ShieldCheck,
     Sparkles,
     Radio,
     Terminal,
@@ -61,6 +62,7 @@
     isLoadingOlder = false,
     notificationSettings = null,
     onOpenNotificationSettings = null,
+    onOpenSecuritySettings = null,
     onLoadOlder,
     onSendMessage,
     onSendCode,
@@ -922,6 +924,19 @@
           {#if notificationSettings?.enabled && notificationSettings?.desktopEnabled}
             <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
           {/if}
+        </button>
+      {/if}
+
+      {#if onOpenSecuritySettings}
+        <button
+          type="button"
+          onclick={onOpenSecuritySettings}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-750 hover:border-slate-700 text-slate-300 hover:text-cyan-300 rounded-lg transition-colors cursor-pointer"
+          title="Device Security & Access Password"
+          aria-label="Security Settings"
+        >
+          <ShieldCheck class="w-3.5 h-3.5 text-cyan-400" />
+          <span class="hidden sm:inline text-[11px]">Security</span>
         </button>
       {/if}
 

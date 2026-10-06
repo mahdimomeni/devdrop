@@ -349,4 +349,156 @@ func TestToggleReactionHandler(t *testing.T) {
 	}
 }
 
+func TestAuthHandlersAndMiddleware(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "devdrop_handler_auth_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	db, err := database.InitDB(tempDir)
+	if err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+	defer db.Close()
+
+	wsHub := hub.NewHub(db)
+	uploadDir := filepath.Join(tempDir, "uploads")
+	tm, err := transfer.NewManager(uploadDir, db, wsHub)
+	if err != nil {
+		t.Fatalf("failed to init tm: %v", err)
+	}
+
+	h := NewServerHandler(db, wsHub, tm)
+	r := chi.NewRouter()
+	h.RegisterRoutes(r)
+
+	// 1. Initial auth status: has_password=false
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on auth status, got %d", rec.Code)
+	}
+	var status struct {
+		HasPassword   bool `json:"has_password"`
+		Authenticated bool `json:"authenticated"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&status)
+	if status.HasPassword || status.Authenticated {
+		t.Errorf("expected false for both on initial setup, got %+v", status)
+	}
+
+	// 2. Set password via CLI/env sync
+	if err := db.SyncPassword("secret-lan-pass"); err != nil {
+		t.Fatalf("failed to sync password: %v", err)
+	}
+
+	// 3. Status now has_password=true
+	req = httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	_ = json.NewDecoder(rec.Body).Decode(&status)
+	if !status.HasPassword || status.Authenticated {
+		t.Errorf("expected has_password=true, authenticated=false, got %+v", status)
+	}
+
+	// 4. Access protected route without token -> should return 401 Unauthorized
+	req = httptest.NewRequest(http.MethodGet, "/api/peers", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized on protected route without token, got %d", rec.Code)
+	}
+
+	// 5. Login on device with wrong password -> 401
+	loginBody := map[string]interface{}{
+		"password":     "wrong-password",
+		"trust_device": true,
+		"device_name":  "Phone",
+	}
+	loginBytes, _ := json.Marshal(loginBody)
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 on wrong password, got %d", rec.Code)
+	}
+
+	// 6. Login with correct password -> 200 and new token
+	loginBody["password"] = "secret-lan-pass"
+	loginBytes, _ = json.Marshal(loginBody)
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on correct login, got %d", rec.Code)
+	}
+	var loginRes struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&loginRes)
+	if !loginRes.Success || loginRes.Token == "" {
+		t.Fatalf("expected token on login, got %+v", loginRes)
+	}
+
+	// 7. Access protected route with Bearer token -> should succeed
+	req = httptest.NewRequest(http.MethodGet, "/api/peers", nil)
+	req.Header.Set("Authorization", "Bearer "+loginRes.Token)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK with valid bearer token, got %d", rec.Code)
+	}
+
+	// 8. Access protected route with X-Device-Token -> should succeed
+	req = httptest.NewRequest(http.MethodGet, "/api/peers", nil)
+	req.Header.Set("X-Device-Token", loginRes.Token)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK with X-Device-Token, got %d", rec.Code)
+	}
+
+	// 9. Check auth status with token
+	req = httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
+	req.Header.Set("Authorization", "Bearer "+loginRes.Token)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on status with token, got %d", rec.Code)
+	}
+	var statusWithToken struct {
+		HasPassword   bool   `json:"has_password"`
+		Authenticated bool   `json:"authenticated"`
+		DeviceName    string `json:"device_name"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&statusWithToken)
+	if !statusWithToken.HasPassword || !statusWithToken.Authenticated || statusWithToken.DeviceName != "Phone" {
+		t.Errorf("unexpected status with token: %+v", statusWithToken)
+	}
+
+	// 10. Logout token
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+loginRes.Token)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 on logout, got %d", rec.Code)
+	}
+
+	// Verify logged out token now fails
+	req = httptest.NewRequest(http.MethodGet, "/api/peers", nil)
+	req.Header.Set("Authorization", "Bearer "+loginRes.Token)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 after logout, got %d", rec.Code)
+	}
+}
+
+
 

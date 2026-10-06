@@ -62,6 +62,78 @@ export function getUserId() {
   return id;
 }
 
+export function getAuthToken() {
+  return localStorage.getItem('devdrop_auth_token') || '';
+}
+
+export function setAuthToken(token) {
+  if (token) {
+    localStorage.setItem('devdrop_auth_token', token);
+  } else {
+    localStorage.removeItem('devdrop_auth_token');
+  }
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem('devdrop_auth_token');
+}
+
+let authRequiredCallback = null;
+export function onAuthRequired(cb) {
+  authRequiredCallback = cb;
+}
+
+export function authHeaders(headers = {}) {
+  const token = getAuthToken();
+  const h = { ...headers };
+  if (token) {
+    h['Authorization'] = `Bearer ${token}`;
+    h['X-Device-Token'] = token;
+  }
+  return h;
+}
+
+export async function customFetch(url, options = {}) {
+  const opts = {
+    ...options,
+    headers: authHeaders(options.headers || {}),
+  };
+  const res = await fetch(url, opts);
+  if (res.status === 401) {
+    if (authRequiredCallback) {
+      authRequiredCallback();
+    }
+  }
+  return res;
+}
+
+export function detectDeviceName() {
+  if (typeof navigator === 'undefined') return 'Web Browser';
+  const ua = navigator.userAgent || '';
+  let os = 'Device';
+  if (ua.includes('Win')) os = 'Windows PC';
+  else if (ua.includes('Mac')) os = 'Mac';
+  else if (ua.includes('Linux')) os = 'Linux';
+  else if (ua.includes('Android')) os = 'Android';
+  else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS Device';
+
+  let browser = 'Browser';
+  if (ua.includes('Firefox')) browser = 'Firefox';
+  else if (ua.includes('Edg')) browser = 'Edge';
+  else if (ua.includes('Chrome')) browser = 'Chrome';
+  else if (ua.includes('Safari')) browser = 'Safari';
+
+  return `${browser} on ${os}`;
+}
+
+export function getDownloadUrl(messageId) {
+  const token = getAuthToken();
+  if (token) {
+    return `/api/transfers/${encodeURIComponent(messageId)}/download?token=${encodeURIComponent(token)}`;
+  }
+  return `/api/transfers/${encodeURIComponent(messageId)}/download`;
+}
+
 
 export function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -112,15 +184,58 @@ export function formatExpirationCountdown(expiresAtStr, burnOnRead, downloadCoun
   return { label: `Expires in ${diffSec}s`, expired: false, isBurn: false };
 }
 
+// Auth API calls
+export async function checkAuthStatus() {
+  const res = await customFetch('/api/auth/status');
+  if (!res.ok) throw new Error('Failed to check auth status');
+  return res.json();
+}
+
+export async function loginWithPassword(password, trustDevice = true, deviceName = '', userId = '') {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      password,
+      trust_device: trustDevice,
+      device_name: deviceName || detectDeviceName(),
+      user_id: userId || getUserId(),
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => 'Invalid password');
+    throw new Error(err || 'Invalid password');
+  }
+  const data = await res.json();
+  if (data.token) {
+    setAuthToken(data.token);
+  }
+  return data;
+}
+
+export async function logoutDevice() {
+  try {
+    await customFetch('/api/auth/logout', { method: 'POST' });
+  } finally {
+    clearAuthToken();
+  }
+}
+
+export async function getAuthDevices() {
+  const res = await customFetch('/api/auth/devices');
+  if (!res.ok) throw new Error('Failed to get devices');
+  return res.json();
+}
+
 // REST API calls
 export async function getProfile(userId) {
-  const res = await fetch(`/api/profile?user_id=${encodeURIComponent(userId)}`);
+  const res = await customFetch(`/api/profile?user_id=${encodeURIComponent(userId)}`);
   if (!res.ok) throw new Error('Failed to load profile');
   return res.json();
 }
 
 export async function updateDisplayName(userId, displayName) {
-  const res = await fetch('/api/profile/name', {
+  const res = await customFetch('/api/profile/name', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, display_name: displayName }),
@@ -130,7 +245,7 @@ export async function updateDisplayName(userId, displayName) {
 }
 
 export async function getPeers() {
-  const res = await fetch('/api/peers');
+  const res = await customFetch('/api/peers');
   if (!res.ok) throw new Error('Failed to load peers');
   return res.json();
 }
@@ -140,7 +255,7 @@ export async function getMessages(userId, peerId, limit = 40, before = null) {
   if (before) {
     url += `&before=${encodeURIComponent(before)}`;
   }
-  const res = await fetch(url);
+  const res = await customFetch(url);
   if (!res.ok) throw new Error('Failed to load messages');
   const messages = await res.json();
   const rawHeader = res.headers.get('X-Has-More') || res.headers.get('x-has-more');
@@ -157,7 +272,7 @@ export async function sendTextMessage(senderId, receiverId, body, replyToId = nu
   };
   if (replyToId) payload.reply_to_id = replyToId;
 
-  const res = await fetch('/api/messages', {
+  const res = await customFetch('/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -177,7 +292,7 @@ export async function sendCodeMessage(senderId, receiverId, body, language, code
   };
   if (replyToId) payload.reply_to_id = replyToId;
 
-  const res = await fetch('/api/messages', {
+  const res = await customFetch('/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -187,7 +302,7 @@ export async function sendCodeMessage(senderId, receiverId, body, language, code
 }
 
 export async function toggleMessageReaction(messageId, userId, emoji) {
-  const res = await fetch(`/api/messages/${encodeURIComponent(messageId)}/reactions`, {
+  const res = await customFetch(`/api/messages/${encodeURIComponent(messageId)}/reactions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, emoji }),
@@ -214,7 +329,7 @@ export async function fetchLinkPreview(url) {
 
   const reqPromise = (async () => {
     try {
-      const res = await fetch(`/api/preview?url=${encodeURIComponent(url)}`);
+      const res = await customFetch(`/api/preview?url=${encodeURIComponent(url)}`);
       if (!res.ok) {
         linkPreviewCache.set(url, null);
         return null;
@@ -239,6 +354,12 @@ export async function uploadTransfer(formData, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
+
+    const token = getAuthToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.setRequestHeader('X-Device-Token', token);
+    }
 
     if (xhr.upload && onProgress) {
       xhr.upload.addEventListener('progress', (e) => {
@@ -286,7 +407,11 @@ export class DevDropSocket {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/ws?user_id=${encodeURIComponent(this.userId)}`;
+    const token = getAuthToken();
+    let wsUrl = `${protocol}//${host}/ws?user_id=${encodeURIComponent(this.userId)}`;
+    if (token) {
+      wsUrl += `&token=${encodeURIComponent(token)}`;
+    }
 
     this.ws = new WebSocket(wsUrl);
 

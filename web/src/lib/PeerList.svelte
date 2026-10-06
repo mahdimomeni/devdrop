@@ -14,7 +14,8 @@
     MessageSquare,
     Bell,
     BellRing,
-    BellOff
+    BellOff,
+    ShieldCheck
   } from 'lucide-svelte';
   import { formatRelativeTime } from './api.js';
 
@@ -25,6 +26,7 @@
     unreadCounts = {},
     notificationSettings = null,
     onOpenNotificationSettings = null,
+    onOpenSecuritySettings = null,
     onSelectPeer,
     onUpdateName,
     onCloseMobile = null,
@@ -89,6 +91,17 @@
         <span class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
           {onlineCount} {onlineCount === 1 ? 'Peer' : 'Peers'} Online
         </span>
+        {#if onOpenSecuritySettings}
+          <button
+            type="button"
+            onclick={onOpenSecuritySettings}
+            class="p-1 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-md border border-slate-800/80 hover:border-cyan-800/60 transition-colors cursor-pointer"
+            title="Device Security & Access Password"
+            aria-label="Security Settings"
+          >
+            <ShieldCheck class="w-3.5 h-3.5 text-cyan-400" />
+          </button>
+        {/if}
         {#if onOpenNotificationSettings}
           <button
             type="button"

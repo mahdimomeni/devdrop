@@ -10,11 +10,15 @@
     uploadTransfer,
     updateDisplayName,
     toggleMessageReaction,
+    checkAuthStatus,
+    onAuthRequired,
     DevDropSocket
   } from './lib/api.js';
   import PeerList from './lib/PeerList.svelte';
   import ChatView from './lib/ChatView.svelte';
   import NotificationModal from './lib/NotificationModal.svelte';
+  import AuthGate from './lib/AuthGate.svelte';
+  import SecurityModal from './lib/SecurityModal.svelte';
   import {
     loadNotificationSettings,
     saveNotificationSettings,
@@ -50,6 +54,8 @@
   let isAppFocused = $state(typeof document !== 'undefined' ? document.hasFocus() : true);
   let notificationSettings = $state(loadNotificationSettings());
   let isNotificationModalOpen = $state(false);
+  let authState = $state('checking'); // 'checking' | 'needs_setup' | 'needs_login' | 'authenticated'
+  let isSecurityModalOpen = $state(false);
 
   let totalUnreads = $derived.by(() => {
     return Object.entries(unreadCounts).reduce((acc, [key, count]) => {
@@ -461,6 +467,18 @@
       document.removeEventListener('visibilitychange', handleVisibility);
     };
 
+    onAuthRequired(() => {
+      authState = 'needs_login';
+      if (socket) {
+        socket.destroy();
+        socket = null;
+      }
+    });
+
+    await checkAuthAndInit();
+  });
+
+  async function initializeDevDropWorkspace() {
     // 1. Fetch initial profile
     try {
       const prof = await getProfile(userId);
@@ -481,8 +499,53 @@
     await loadConversation('broadcast');
 
     // 4. Connect WebSocket
-    socket = new DevDropSocket(userId, handleWsEvent);
-  });
+    if (!socket) {
+      socket = new DevDropSocket(userId, handleWsEvent);
+    }
+  }
+
+  async function checkAuthAndInit() {
+    authState = 'checking';
+    try {
+      const status = await checkAuthStatus();
+      if (!status.has_password) {
+        // No password configured on server - open access
+        authState = 'authenticated';
+        await initializeDevDropWorkspace();
+        return;
+      }
+      if (!status.authenticated) {
+        authState = 'needs_login';
+        return;
+      }
+      authState = 'authenticated';
+      await initializeDevDropWorkspace();
+    } catch (err) {
+      console.warn('Auth check error:', err);
+      authState = 'needs_login';
+    }
+  }
+
+  async function handleAuthenticated() {
+    authState = 'authenticated';
+    await initializeDevDropWorkspace();
+  }
+
+  function handleLocked() {
+    authState = 'needs_login';
+    isSecurityModalOpen = false;
+    if (socket) {
+      socket.destroy();
+      socket = null;
+    }
+    currentUser = null;
+    peers = [];
+    messages = [];
+  }
+
+  function handleOpenSecuritySettings() {
+    isSecurityModalOpen = true;
+  }
 
   onDestroy(() => {
     if (cleanupFocusListeners) cleanupFocusListeners();
@@ -613,6 +676,32 @@
     }}
   />
 
+  <!-- Security & Trusted Device Modal -->
+  <SecurityModal
+    isOpen={isSecurityModalOpen}
+    {currentUser}
+    onClose={() => (isSecurityModalOpen = false)}
+    onLocked={handleLocked}
+    onNotify={showToast}
+  />
+
+  <!-- Auth Gate Overlays -->
+  {#if authState === 'checking'}
+    <div class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 text-slate-100 gap-4">
+      <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-500/20 to-indigo-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-2xl shadow-cyan-950/40">
+        <Loader2 class="w-7 h-7 animate-spin text-cyan-400" />
+      </div>
+      <div class="flex flex-col items-center gap-1">
+        <span class="text-sm font-bold text-slate-200">DevDrop LAN</span>
+        <span class="text-xs font-mono text-slate-400">Verifying device trust...</span>
+      </div>
+    </div>
+  {:else if authState === 'needs_login'}
+    <AuthGate
+      onAuthenticated={handleAuthenticated}
+    />
+  {/if}
+
   <!-- Main App Layout -->
   <div class="flex-1 flex overflow-hidden relative min-h-0 w-full">
     <!-- Left Sidebar: Peer List -->
@@ -624,6 +713,7 @@
         {unreadCounts}
         {notificationSettings}
         onOpenNotificationSettings={handleOpenNotificationSettings}
+        onOpenSecuritySettings={handleOpenSecuritySettings}
         onSelectPeer={(id) => {
           loadConversation(id);
           mobileActiveView = 'chat';
@@ -645,6 +735,7 @@
         {isLoadingOlder}
         {notificationSettings}
         onOpenNotificationSettings={handleOpenNotificationSettings}
+        onOpenSecuritySettings={handleOpenSecuritySettings}
         onLoadOlder={handleLoadOlder}
         onSendMessage={handleSendMessage}
         onSendCode={handleSendCode}
