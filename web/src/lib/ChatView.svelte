@@ -94,6 +94,12 @@
     return filterMentionCandidates(peers, currentUser, mentionQuery);
   });
 
+  $effect(() => {
+    if (mentionCandidates.length > 0 && selectedMentionIndex >= mentionCandidates.length) {
+      selectedMentionIndex = 0;
+    }
+  });
+
   // Reply state
   let replyingTo = $state(null);
   let highlightedMsgId = $state(null);
@@ -447,24 +453,41 @@
     const cursorPos = textareaElement.selectionStart;
     const ctx = extractMentionContext(textInput, cursorPos);
     if (ctx.isOpen) {
+      if (mentionQuery !== ctx.query) {
+        selectedMentionIndex = 0;
+      }
       mentionMenuOpen = true;
       mentionQuery = ctx.query;
       mentionAtIndex = ctx.atIndex;
-      selectedMentionIndex = 0;
     } else {
       mentionMenuOpen = false;
       mentionAtIndex = -1;
+      mentionQuery = '';
+      selectedMentionIndex = 0;
     }
+  }
+
+  function scrollSelectedMentionIntoView() {
+    tick().then(() => {
+      const el = document.getElementById(`mention-option-${selectedMentionIndex}`);
+      el?.scrollIntoView({ block: 'nearest' });
+    });
   }
 
   function applyMention(item) {
     if (!item || !textareaElement) return;
     const nameToInsert = item.name;
-    const before = textInput.slice(0, mentionAtIndex);
+    const targetAtIndex = mentionAtIndex >= 0 ? mentionAtIndex : textInput.lastIndexOf('@', textareaElement.selectionStart);
+    if (targetAtIndex < 0) return;
+
+    const before = textInput.slice(0, targetAtIndex);
     const after = textInput.slice(textareaElement.selectionStart);
     const inserted = `@${nameToInsert} `;
     textInput = before + inserted + after;
     mentionMenuOpen = false;
+    mentionAtIndex = -1;
+    mentionQuery = '';
+    selectedMentionIndex = 0;
 
     tick().then(() => {
       if (textareaElement) {
@@ -477,8 +500,7 @@
 
   function triggerMentionButton() {
     if (!textareaElement) return;
-    textareaElement.focus();
-    const cursorPos = textareaElement.selectionStart;
+    const cursorPos = textareaElement.selectionStart ?? textInput.length;
     const before = textInput.slice(0, cursorPos);
     const after = textInput.slice(cursorPos);
     const needsLeadingSpace = cursorPos > 0 && !/\s/.test(before.slice(-1));
@@ -493,6 +515,7 @@
     tick().then(() => {
       if (textareaElement) {
         const newPos = before.length + insertText.length;
+        textareaElement.focus();
         textareaElement.setSelectionRange(newPos, newPos);
       }
     });
@@ -504,6 +527,9 @@
     const prefix = textInput && !textInput.endsWith(' ') ? ' ' : '';
     textInput = textInput + `${prefix}@${cleanName} `;
     mentionMenuOpen = false;
+    mentionAtIndex = -1;
+    mentionQuery = '';
+    selectedMentionIndex = 0;
     tick().then(() => {
       if (textareaElement) {
         textareaElement.focus();
@@ -543,7 +569,44 @@
       if (activeQuickReactionMsgId) {
         activeQuickReactionMsgId = null;
       }
+      if (mentionMenuOpen) {
+        mentionMenuOpen = false;
+        return;
+      }
     }
+
+    if (mentionMenuOpen && mentionCandidates.length > 0 && e.target !== textareaElement) {
+      const isOtherInput = e.target && (e.target.tagName === 'INPUT' || (e.target.tagName === 'TEXTAREA' && e.target !== textareaElement));
+      if (!isOtherInput) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          selectedMentionIndex = (selectedMentionIndex + 1) % mentionCandidates.length;
+          scrollSelectedMentionIntoView();
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          selectedMentionIndex = (selectedMentionIndex - 1 + mentionCandidates.length) % mentionCandidates.length;
+          scrollSelectedMentionIntoView();
+          return;
+        }
+        if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+          e.preventDefault();
+          const candidate = mentionCandidates[selectedMentionIndex] || mentionCandidates[0];
+          if (candidate) {
+            applyMention(candidate);
+          }
+          return;
+        }
+      }
+    }
+  }
+
+  function handleKeyUp(e) {
+    if (['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+      return;
+    }
+    updateMentionContext();
   }
 
   function handleKeyDown(e) {
@@ -552,16 +615,21 @@
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         selectedMentionIndex = (selectedMentionIndex + 1) % mentionCandidates.length;
+        scrollSelectedMentionIntoView();
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         selectedMentionIndex = (selectedMentionIndex - 1 + mentionCandidates.length) % mentionCandidates.length;
+        scrollSelectedMentionIntoView();
         return;
       }
-      if (e.key === 'Enter' || e.key === 'Tab') {
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
         e.preventDefault();
-        applyMention(mentionCandidates[selectedMentionIndex]);
+        const candidate = mentionCandidates[selectedMentionIndex] || mentionCandidates[0];
+        if (candidate) {
+          applyMention(candidate);
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -1668,10 +1736,15 @@
               {@const isSelected = selectedMentionIndex === idx}
               <button
                 type="button"
+                id="mention-option-{idx}"
+                role="option"
+                aria-selected={isSelected}
+                onmouseenter={() => (selectedMentionIndex = idx)}
                 onpointerdown={(e) => {
                   e.preventDefault();
                   applyMention(item);
                 }}
+                onclick={() => applyMention(item)}
                 class="w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 transition-colors cursor-pointer {isSelected
                   ? 'bg-cyan-950/70 border-l-2 border-cyan-400 text-white'
                   : 'text-slate-300 hover:bg-slate-900/80 hover:text-white'}"
@@ -1748,7 +1821,7 @@
         onkeydown={handleKeyDown}
         oninput={updateMentionContext}
         onclick={updateMentionContext}
-        onkeyup={updateMentionContext}
+        onkeyup={handleKeyUp}
         placeholder={replyingTo
           ? `Replying to ${getSenderDisplayName(replyingTo.sender_id)}...`
           : (isBroadcast ? "Type message or @name to mention (Shift+Enter for new line)..." : `Type direct message to ${selectedPeer?.display_name}...`)}
@@ -1788,6 +1861,7 @@
           <!-- Mention Button -->
           <button
             type="button"
+            onmousedown={(e) => e.preventDefault()}
             onclick={triggerMentionButton}
             class="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-cyan-300 hover:bg-slate-800 border border-slate-750 transition-colors cursor-pointer flex-shrink-0"
             title="Mention a peer (@)"

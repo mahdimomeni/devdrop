@@ -198,7 +198,7 @@ export function extractMentionContext(text, cursorPos) {
   if (!isValidPrefix) return { isOpen: false, query: '', atIndex: -1 };
 
   const query = textBefore.slice(lastAtIndex + 1);
-  if (query.includes('\n') || query.length > 30) {
+  if (/\s/.test(query) || query.length > 30) {
     return { isOpen: false, query: '', atIndex: -1 };
   }
 
