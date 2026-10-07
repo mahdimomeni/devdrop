@@ -15,7 +15,8 @@
     Bell,
     BellRing,
     BellOff,
-    ShieldCheck
+    ShieldCheck,
+    Download
   } from 'lucide-svelte';
   import { formatRelativeTime } from './api.js';
 
@@ -25,8 +26,10 @@
     selectedPeerId = 'broadcast',
     unreadCounts = {},
     notificationSettings = null,
+    pwaInfo = null,
     onOpenNotificationSettings = null,
     onOpenSecuritySettings = null,
+    onOpenInstallModal = null,
     onSelectPeer,
     onUpdateName,
     onCloseMobile = null,
@@ -100,6 +103,17 @@
             aria-label="Security Settings"
           >
             <ShieldCheck class="w-3.5 h-3.5 text-cyan-400" />
+          </button>
+        {/if}
+        {#if onOpenInstallModal && !pwaInfo?.isInstalled}
+          <button
+            type="button"
+            onclick={onOpenInstallModal}
+            class="p-1 text-cyan-400 hover:text-cyan-200 hover:bg-cyan-950/60 rounded-md border border-cyan-800/80 hover:border-cyan-500/80 transition-colors cursor-pointer shadow-sm"
+            title="Install DevDrop PWA on PC or Phone"
+            aria-label="Install App"
+          >
+            <Download class="w-3.5 h-3.5" />
           </button>
         {/if}
         {#if onOpenNotificationSettings}
@@ -310,6 +324,18 @@
       <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
       <span>Zero-Config LAN</span>
     </span>
-    <span class="text-slate-600">DevDrop v1.0</span>
+    {#if onOpenInstallModal && !pwaInfo?.isInstalled}
+      <button
+        type="button"
+        onclick={onOpenInstallModal}
+        class="inline-flex items-center gap-1 text-[10px] text-cyan-400 hover:text-cyan-200 bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-800/60 hover:border-cyan-500/60 px-2.5 py-0.5 rounded-full transition-all cursor-pointer font-medium"
+        title="Install DevDrop PWA"
+      >
+        <Download class="w-2.5 h-2.5" />
+        <span>Install App</span>
+      </button>
+    {:else}
+      <span class="text-slate-600">DevDrop v1.0</span>
+    {/if}
   </div>
 </aside>

@@ -155,6 +155,9 @@ When started, DevDrop detects your local LAN network adapters and prints accessi
 | `-port` | `PORT` | `8080` | Port to listen on |
 | `-data` | `DATA_DIR` | `./data` | Directory for SQLite DB and upload files |
 | `-password` | `DEVDROP_PASSWORD` / `PASSWORD` | *Empty* | Access password for the LAN node (managed exclusively via CLI or environment variable) |
+| `-tls` | `TLS` | `false` | Enable auto-generated self-signed HTTPS/TLS for secure PWA installation |
+| `-cert` | `TLS_CERT` | *Empty* | Path to custom TLS certificate file (e.g. from mkcert) |
+| `-key` | `TLS_KEY` | *Empty* | Path to custom TLS private key file |
 
 ---
 
@@ -184,3 +187,52 @@ DevDrop supports access protection with seamless trusted device management:
 ### 🔥 Ephemeral Transfers & Burn-On-Read
 - Select **Burn on Read (1x)** from the TTL selector.
 - The recipient downloads the file once; upon download completion, the server immediately purges the file from disk and notifies all connected clients that the file has self-destructed.
+
+---
+
+## 📱 Progressive Web App (PWA) — Install on Phone & PC
+
+DevDrop is a full **Progressive Web App (PWA)**, allowing developers to install it as a native desktop or mobile application directly from the browser without any app store.
+
+### 🤖 Installing on Android (Why Chrome says "This app cannot be installed")
+Mobile Chrome **strictly requires a Secure Context (HTTPS or localhost)** to install PWAs. Over plain HTTP on a local LAN IP (e.g. `http://192.10.105.53:8080`), Chrome flags the connection with a `⚠️` warning and disables the install button by default.
+
+**Option A: 30-Second Chrome Flag (No tools or certs needed):**
+1. On your phone, open Chrome and navigate to:
+   ```
+   chrome://flags/#unsafely-treat-insecure-origin-as-secure
+   ```
+2. Set the flag to **Enabled**.
+3. In the input box, paste your DevDrop LAN address (e.g. `http://192.10.105.53:8080`).
+4. Tap **Relaunch** at the bottom of Chrome.
+5. Refresh DevDrop. The `⚠️` icon disappears, and tapping **Install** will install DevDrop immediately to your home screen!
+
+**Option B: Run DevDrop with Built-in HTTPS:**
+Start DevDrop with `-tls` to serve over HTTPS:
+```bash
+./devdrop -tls
+```
+Or provide trusted certificates (e.g. via [mkcert](https://github.com/FiloSottile/mkcert)):
+```bash
+./devdrop -cert /path/to/cert.pem -key /path/to/key.pem
+```
+
+### 💻 Installing on PC & Mac (Chrome, Edge, Brave)
+1. Open DevDrop in your browser (e.g. `http://localhost:8080` or `http://<lan-ip>:8080`).
+2. Click the **Install App** button in the header or in the left sidebar footer (or click the install icon **⊕** in the browser address bar).
+3. Confirm **Install**.
+4. DevDrop launches in a dedicated, frameless window with:
+   - Dedicated taskbar/dock icon and window frame (no browser URL bar or tabs).
+   - Fast startup with pre-cached offline application shell.
+   - Native OS desktop notifications for mentions and file transfers.
+
+### 🍏 Installing on iPhone & iPad (iOS Safari)
+1. Open DevDrop in **Safari** on your iOS device.
+2. Tap the **Share** button (box with upward arrow $\Box \uparrow$) in Safari's bottom navigation bar.
+3. Scroll down and select **Add to Home Screen** ($\boxplus$).
+4. Tap **Add** in the top-right corner.
+5. DevDrop appears on your home screen with its custom icon and runs in full-screen standalone mode.
+
+### 🔄 Automatic Updates
+DevDrop's Service Worker checks for updates in the background. When a new version is deployed to the LAN node, an update banner appears automatically: *"A new version of DevDrop is ready to install!"* with a 1-click **Update Now** button.
+

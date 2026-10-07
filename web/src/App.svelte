@@ -19,6 +19,8 @@
   import NotificationModal from './lib/NotificationModal.svelte';
   import AuthGate from './lib/AuthGate.svelte';
   import SecurityModal from './lib/SecurityModal.svelte';
+  import InstallModal from './lib/InstallModal.svelte';
+  import { initPWA, subscribePWA, applyUpdate } from './lib/pwaService.js';
   import {
     loadNotificationSettings,
     saveNotificationSettings,
@@ -36,6 +38,8 @@
     AtSign,
     BellRing,
     MessageSquare,
+    RefreshCw,
+    Download,
     X
   } from 'lucide-svelte';
   import { isUserMentioned } from './lib/mentionUtils.js';
@@ -56,6 +60,18 @@
   let isNotificationModalOpen = $state(false);
   let authState = $state('checking'); // 'checking' | 'needs_setup' | 'needs_login' | 'authenticated'
   let isSecurityModalOpen = $state(false);
+  let isInstallModalOpen = $state(false);
+  let pwaInfo = $state({
+    isSupported: true,
+    isInstalled: false,
+    isInstallable: false,
+    hasUpdate: false,
+    isIOS: false,
+    isAndroid: false,
+    isDesktop: true,
+    platform: 'desktop'
+  });
+  let cleanupPWA = null;
 
   let totalUnreads = $derived.by(() => {
     return Object.entries(unreadCounts).reduce((acc, [key, count]) => {
@@ -475,6 +491,11 @@
       }
     });
 
+    initPWA();
+    cleanupPWA = subscribePWA((state) => {
+      pwaInfo = state;
+    });
+
     await checkAuthAndInit();
   });
 
@@ -549,12 +570,30 @@
 
   onDestroy(() => {
     if (cleanupFocusListeners) cleanupFocusListeners();
+    if (cleanupPWA) cleanupPWA();
     if (socket) socket.destroy();
   });
 </script>
 
 <main class="h-full w-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans min-h-0">
   
+  <!-- New Version Update Available Banner -->
+  {#if pwaInfo.hasUpdate}
+    <div class="bg-gradient-to-r from-cyan-600 to-indigo-600 text-white px-3 sm:px-4 py-1.5 text-xs font-mono font-medium flex items-center justify-between gap-2 z-50 flex-shrink-0 shadow-lg animate-in fade-in duration-150">
+      <div class="flex items-center gap-2 truncate">
+        <RefreshCw class="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+        <span class="truncate">A new version of DevDrop is ready to install!</span>
+      </div>
+      <button
+        type="button"
+        onclick={applyUpdate}
+        class="px-2.5 py-0.5 bg-white text-slate-950 font-bold rounded hover:bg-slate-100 transition-colors cursor-pointer flex-shrink-0 text-[11px]"
+      >
+        Update Now
+      </button>
+    </div>
+  {/if}
+
   <!-- Disconnected Network Alert Banner -->
   {#if !isWsConnected}
     <div class="bg-amber-600/90 text-slate-950 px-3 sm:px-4 py-1.5 text-xs font-mono font-medium flex items-center justify-center gap-2 z-50 truncate flex-shrink-0">
@@ -685,6 +724,13 @@
     onNotify={showToast}
   />
 
+  <!-- PWA Install Modal -->
+  <InstallModal
+    isOpen={isInstallModalOpen}
+    {pwaInfo}
+    onClose={() => (isInstallModalOpen = false)}
+  />
+
   <!-- Auth Gate Overlays -->
   {#if authState === 'checking'}
     <div class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 text-slate-100 gap-4">
@@ -712,8 +758,10 @@
         {selectedPeerId}
         {unreadCounts}
         {notificationSettings}
+        {pwaInfo}
         onOpenNotificationSettings={handleOpenNotificationSettings}
         onOpenSecuritySettings={handleOpenSecuritySettings}
+        onOpenInstallModal={() => (isInstallModalOpen = true)}
         onSelectPeer={(id) => {
           loadConversation(id);
           mobileActiveView = 'chat';
@@ -734,8 +782,10 @@
         {isLoadingMessages}
         {isLoadingOlder}
         {notificationSettings}
+        {pwaInfo}
         onOpenNotificationSettings={handleOpenNotificationSettings}
         onOpenSecuritySettings={handleOpenSecuritySettings}
+        onOpenInstallModal={() => (isInstallModalOpen = true)}
         onLoadOlder={handleLoadOlder}
         onSendMessage={handleSendMessage}
         onSendCode={handleSendCode}

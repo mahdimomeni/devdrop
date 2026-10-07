@@ -31,7 +31,8 @@
     BellRing,
     BellOff,
     Smile,
-    SmilePlus
+    SmilePlus,
+    Download
   } from 'lucide-svelte';
   import { formatRelativeTime, copyToClipboard } from './api.js';
   import FileCard from './FileCard.svelte';
@@ -61,8 +62,10 @@
     isLoadingMessages = false,
     isLoadingOlder = false,
     notificationSettings = null,
+    pwaInfo = null,
     onOpenNotificationSettings = null,
     onOpenSecuritySettings = null,
+    onOpenInstallModal = null,
     onLoadOlder,
     onSendMessage,
     onSendCode,
@@ -951,6 +954,19 @@
           {#if notificationSettings?.enabled && notificationSettings?.desktopEnabled}
             <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
           {/if}
+        </button>
+      {/if}
+
+      {#if onOpenInstallModal && !pwaInfo?.isInstalled}
+        <button
+          type="button"
+          onclick={onOpenInstallModal}
+          class="flex items-center gap-1.5 px-2.5 py-1.5 bg-cyan-950/70 hover:bg-cyan-900/80 border border-cyan-800/80 hover:border-cyan-500/80 text-cyan-300 hover:text-white rounded-lg transition-all cursor-pointer shadow-sm"
+          title="Install DevDrop PWA on PC or Phone"
+          aria-label="Install App"
+        >
+          <Download class="w-3.5 h-3.5 text-cyan-400" />
+          <span class="hidden sm:inline text-[11px] font-semibold">Install App</span>
         </button>
       {/if}
 

@@ -2,10 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -30,6 +38,9 @@ func main() {
 	portFlag := flag.Int("port", 8080, "Port to listen on")
 	dataDirFlag := flag.String("data", "./data", "Directory to store database and uploaded files")
 	passwordFlag := flag.String("password", "", "Access password for DevDrop LAN")
+	tlsFlag := flag.Bool("tls", false, "Enable auto-generated self-signed HTTPS/TLS for secure PWA installation")
+	certFlag := flag.String("cert", "", "Path to custom TLS certificate file (e.g. from mkcert)")
+	keyFlag := flag.String("key", "", "Path to custom TLS private key file")
 	flag.Parse()
 
 	port := *portFlag
@@ -105,6 +116,11 @@ func main() {
 	h := handlers.NewServerHandler(db, wsHub, tm)
 	h.RegisterRoutes(r)
 
+	// Register PWA MIME types
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+	_ = mime.AddExtensionType(".js", "application/javascript")
+	_ = mime.AddExtensionType(".svg", "image/svg+xml")
+
 	// Embedded Static File Server with SPA Fallback
 	distFS, err := web.GetFileSystem()
 	if err != nil {
@@ -128,6 +144,14 @@ func main() {
 		f, err := distFS.Open(path)
 		if err == nil {
 			_ = f.Close()
+			if path == "sw.js" {
+				w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+				w.Header().Set("Service-Worker-Allowed", "/")
+				w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			} else if path == "manifest.webmanifest" || path == "manifest.json" {
+				w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+				w.Header().Set("Cache-Control", "public, max-age=3600")
+			}
 			fileServer.ServeHTTP(w, req)
 			return
 		}
@@ -152,8 +176,26 @@ func main() {
 		WriteTimeout: 30 * time.Minute,
 	}
 
+	// Determine TLS configuration
+	isTLS := false
+	tlsCertFile := *certFlag
+	tlsKeyFile := *keyFlag
+
+	if tlsCertFile != "" && tlsKeyFile != "" {
+		isTLS = true
+	} else if *tlsFlag {
+		ips := getLocalIPs()
+		certPath, keyPath, err := getOrCreateSelfSignedCert(dataDir, ips)
+		if err != nil {
+			log.Fatalf("Failed to generate self-signed TLS certificates: %v", err)
+		}
+		tlsCertFile = certPath
+		tlsKeyFile = keyPath
+		isTLS = true
+	}
+
 	// Print startup information with detected LAN IPs
-	printBanner(port, db)
+	printBanner(port, db, isTLS)
 
 	// Graceful shutdown
 	go func() {
@@ -168,28 +210,43 @@ func main() {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server error: %v", err)
+	if isTLS {
+		if err := server.ListenAndServeTLS(tlsCertFile, tlsKeyFile); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("TLS Server error: %v", err)
+		}
+	} else {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
 	}
 }
 
-func printBanner(port int, db *database.DB) {
+func printBanner(port int, db *database.DB, isTLS bool) {
+	scheme := "http"
+	if isTLS {
+		scheme = "https"
+	}
+
 	fmt.Println()
 	fmt.Println("  ┌──────────────────────────────────────────────────────────┐")
 	fmt.Println("  │                      DevDrop LAN                         │")
 	fmt.Println("  │    Zero-Config Developer Collaboration Service           │")
 	fmt.Println("  └──────────────────────────────────────────────────────────┘")
-	fmt.Printf("   > Local:    http://localhost:%d\n", port)
+	fmt.Printf("   > Local:    %s://localhost:%d\n", scheme, port)
 
 	ips := getLocalIPs()
 	for _, ip := range ips {
-		fmt.Printf("   > Network:  http://%s:%d\n", ip, port)
+		fmt.Printf("   > Network:  %s://%s:%d\n", scheme, ip, port)
 	}
 
 	if hasPass, _ := db.HasPassword(); hasPass {
 		fmt.Println("   > Security: Password Protected (Configured via CLI / ENV)")
 	} else {
 		fmt.Println("   > Security: Open Access (Set password via -password or DEVDROP_PASSWORD)")
+	}
+
+	if isTLS {
+		fmt.Println("   > Protocol: HTTPS/TLS Active (Secure Context for PWA Installation)")
 	}
 	fmt.Println()
 }
@@ -209,4 +266,73 @@ func getLocalIPs() []string {
 		}
 	}
 	return ips
+}
+
+func getOrCreateSelfSignedCert(dataDir string, ips []string) (string, string, error) {
+	certFile := filepath.Join(dataDir, "cert.pem")
+	keyFile := filepath.Join(dataDir, "key.pem")
+
+	if _, err := os.Stat(certFile); err == nil {
+		if _, err := os.Stat(keyFile); err == nil {
+			return certFile, keyFile, nil
+		}
+	}
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", err
+	}
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return "", "", err
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"DevDrop LAN"},
+			CommonName:   "DevDrop LAN Node",
+		},
+		NotBefore: time.Now().Add(-1 * time.Hour),
+		NotAfter:  time.Now().Add(365 * 24 * time.Hour),
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost", "devdrop.local"},
+	}
+
+	template.IPAddresses = append(template.IPAddresses, net.ParseIP("127.0.0.1"), net.ParseIP("::1"))
+	for _, ipStr := range ips {
+		if ip := net.ParseIP(ipStr); ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		}
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return "", "", err
+	}
+
+	certOut, err := os.Create(certFile)
+	if err != nil {
+		return "", "", err
+	}
+	_ = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	_ = certOut.Close()
+
+	keyBytes, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return "", "", err
+	}
+	keyOut, err := os.OpenFile(keyFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return "", "", err
+	}
+	_ = pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	_ = keyOut.Close()
+
+	return certFile, keyFile, nil
 }
