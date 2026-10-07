@@ -155,7 +155,7 @@
           '&': { height: '100%', fontSize: '13px' },
           '.cm-scroller': { overflow: 'auto', fontFamily: "'JetBrains Mono', 'Vazirmatn', 'Vazir', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" },
           '.cm-content': { padding: '12px 0' },
-          '.cm-gutters': { backgroundColor: '#090d16', borderRight: '1px solid #1e293b', color: '#64748b' }
+          '.cm-gutters': { backgroundColor: 'var(--editor-gutter-bg, #090d16)', borderRight: '1px solid var(--editor-gutter-border, #1e293b)', color: 'var(--editor-gutter-color, #64748b)' }
         })
       ],
     });

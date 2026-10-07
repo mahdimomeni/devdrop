@@ -20,7 +20,13 @@
   import AuthGate from './lib/AuthGate.svelte';
   import SecurityModal from './lib/SecurityModal.svelte';
   import InstallModal from './lib/InstallModal.svelte';
+  import ThemeModal from './lib/ThemeModal.svelte';
   import { initPWA, subscribePWA, applyUpdate } from './lib/pwaService.js';
+  import {
+    loadThemeSettings,
+    saveThemeSettings,
+    applyTheme
+  } from './lib/themeService.js';
   import {
     loadNotificationSettings,
     saveNotificationSettings,
@@ -58,6 +64,8 @@
   let isAppFocused = $state(typeof document !== 'undefined' ? document.hasFocus() : true);
   let notificationSettings = $state(loadNotificationSettings());
   let isNotificationModalOpen = $state(false);
+  let themeSettings = $state(loadThemeSettings());
+  let isThemeModalOpen = $state(false);
   let authState = $state('checking'); // 'checking' | 'needs_setup' | 'needs_login' | 'authenticated'
   let isSecurityModalOpen = $state(false);
   let isInstallModalOpen = $state(false);
@@ -107,6 +115,16 @@
 
   function handleOpenNotificationSettings() {
     isNotificationModalOpen = true;
+  }
+
+  function handleUpdateThemeSettings(newSettings) {
+    themeSettings = newSettings;
+    saveThemeSettings(newSettings);
+    applyTheme(newSettings);
+  }
+
+  function handleOpenThemeSettings() {
+    isThemeModalOpen = true;
   }
 
   // Find currently selected peer object
@@ -731,6 +749,14 @@
     onClose={() => (isInstallModalOpen = false)}
   />
 
+  <!-- Theme & Appearance Modal -->
+  <ThemeModal
+    isOpen={isThemeModalOpen}
+    settings={themeSettings}
+    onUpdateSettings={handleUpdateThemeSettings}
+    onClose={() => (isThemeModalOpen = false)}
+  />
+
   <!-- Auth Gate Overlays -->
   {#if authState === 'checking'}
     <div class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 text-slate-100 gap-4">
@@ -758,9 +784,11 @@
         {selectedPeerId}
         {unreadCounts}
         {notificationSettings}
+        {themeSettings}
         {pwaInfo}
         onOpenNotificationSettings={handleOpenNotificationSettings}
         onOpenSecuritySettings={handleOpenSecuritySettings}
+        onOpenThemeSettings={handleOpenThemeSettings}
         onOpenInstallModal={() => (isInstallModalOpen = true)}
         onSelectPeer={(id) => {
           loadConversation(id);
@@ -782,9 +810,11 @@
         {isLoadingMessages}
         {isLoadingOlder}
         {notificationSettings}
+        {themeSettings}
         {pwaInfo}
         onOpenNotificationSettings={handleOpenNotificationSettings}
         onOpenSecuritySettings={handleOpenSecuritySettings}
+        onOpenThemeSettings={handleOpenThemeSettings}
         onOpenInstallModal={() => (isInstallModalOpen = true)}
         onLoadOlder={handleLoadOlder}
         onSendMessage={handleSendMessage}

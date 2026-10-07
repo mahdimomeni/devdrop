@@ -16,7 +16,8 @@
     BellRing,
     BellOff,
     ShieldCheck,
-    Download
+    Download,
+    Palette
   } from 'lucide-svelte';
   import { formatRelativeTime } from './api.js';
 
@@ -26,9 +27,11 @@
     selectedPeerId = 'broadcast',
     unreadCounts = {},
     notificationSettings = null,
+    themeSettings = null,
     pwaInfo = null,
     onOpenNotificationSettings = null,
     onOpenSecuritySettings = null,
+    onOpenThemeSettings = null,
     onOpenInstallModal = null,
     onSelectPeer,
     onUpdateName,
@@ -114,6 +117,17 @@
             aria-label="Install App"
           >
             <Download class="w-3.5 h-3.5" />
+          </button>
+        {/if}
+        {#if onOpenThemeSettings}
+          <button
+            type="button"
+            onclick={onOpenThemeSettings}
+            class="p-1 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-md border border-slate-800/80 hover:border-cyan-800/60 transition-colors cursor-pointer"
+            title="Appearance & Theme Colors"
+            aria-label="Theme Settings"
+          >
+            <Palette class="w-3.5 h-3.5 text-cyan-400" />
           </button>
         {/if}
         {#if onOpenNotificationSettings}

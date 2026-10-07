@@ -6,6 +6,8 @@
   --font-mono: 'JetBrains Mono', 'Vazirmatn', 'Vazir', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-persian: 'Vazirmatn', 'Vazir', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-vazir: 'Vazirmatn', 'Vazir', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --color-slate-750: #26334d;
+  --color-slate-850: #162032;
 }
 
 /* Vazir font-family aliases linked to Vazirmatn */
@@ -50,7 +52,8 @@
 }
 
 @layer base {
-  :root {
+  :root,
+  html[data-theme="dark"] {
     color-scheme: dark;
     --sat: env(safe-area-inset-top, 0px);
     --sab: env(safe-area-inset-bottom, 0px);
@@ -59,6 +62,375 @@
     --font-family-sans: 'Inter', 'Vazirmatn', 'Vazir', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
     --font-family-mono: 'JetBrains Mono', 'Vazirmatn', 'Vazir', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     --font-family-persian: 'Vazirmatn', 'Vazir', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+    /* Base Slate Dark (Default DevDrop) */
+    --color-slate-950: #0b0f19;
+    --color-slate-900: #0f172a;
+    --color-slate-850: #162032;
+    --color-slate-800: #1e293b;
+    --color-slate-750: #26334d;
+    --color-slate-700: #334155;
+    --color-slate-600: #475569;
+    --color-slate-500: #64748b;
+    --color-slate-400: #94a3b8;
+    --color-slate-300: #cbd5e1;
+    --color-slate-200: #e2e8f0;
+    --color-slate-100: #f8fafc;
+
+    /* Code Editor & Scrollbar Tokens */
+    --editor-gutter-bg: #090d16;
+    --editor-gutter-border: #1e293b;
+    --editor-gutter-color: #64748b;
+    --scrollbar-thumb: rgba(148, 163, 184, 0.2);
+    --scrollbar-thumb-hover: rgba(148, 163, 184, 0.4);
+  }
+
+  /* 1. Midnight OLED (Pitch Black) */
+  html[data-theme="midnight"] {
+    color-scheme: dark;
+    --color-slate-950: #000000;
+    --color-slate-900: #070709;
+    --color-slate-850: #0d0e12;
+    --color-slate-800: #121318;
+    --color-slate-750: #191b22;
+    --color-slate-700: #222530;
+    --color-slate-600: #353945;
+    --color-slate-500: #606675;
+    --color-slate-400: #8c93a4;
+    --color-slate-300: #c6ccd9;
+    --color-slate-200: #e4e7ee;
+    --color-slate-100: #ffffff;
+    --editor-gutter-bg: #000000;
+    --editor-gutter-border: #1a1a1a;
+  }
+
+  /* 2. Nordic Arctic (Nord) */
+  html[data-theme="nord"] {
+    color-scheme: dark;
+    --color-slate-950: #1d212a;
+    --color-slate-900: #242933;
+    --color-slate-850: #292f3b;
+    --color-slate-800: #2e3440;
+    --color-slate-750: #353c4a;
+    --color-slate-700: #3b4252;
+    --color-slate-600: #4c566a;
+    --color-slate-500: #707d96;
+    --color-slate-400: #9aa7bd;
+    --color-slate-300: #d8dee9;
+    --color-slate-200: #e5e9f0;
+    --color-slate-100: #eceff4;
+    --editor-gutter-bg: #1d212a;
+    --editor-gutter-border: #3b4252;
+  }
+
+  /* 3. Dracula Cosmic (Midnight Violet) */
+  html[data-theme="dracula"] {
+    color-scheme: dark;
+    --color-slate-950: #12111b;
+    --color-slate-900: #191726;
+    --color-slate-850: #1d1b2d;
+    --color-slate-800: #221f35;
+    --color-slate-750: #2a2642;
+    --color-slate-700: #332f50;
+    --color-slate-600: #4c4674;
+    --color-slate-500: #6f67a3;
+    --color-slate-400: #9e95d5;
+    --color-slate-300: #cfc8f4;
+    --color-slate-200: #e6e3fa;
+    --color-slate-100: #f5f3fd;
+    --editor-gutter-bg: #12111b;
+    --editor-gutter-border: #332f50;
+  }
+
+  /* 4. Cyber Matrix (Terminal Green) */
+  html[data-theme="cyberpunk"] {
+    color-scheme: dark;
+    --color-slate-950: #060b08;
+    --color-slate-900: #0d1611;
+    --color-slate-850: #101c15;
+    --color-slate-800: #13221a;
+    --color-slate-750: #182b21;
+    --color-slate-700: #1e3629;
+    --color-slate-600: #2e523f;
+    --color-slate-500: #4a7d63;
+    --color-slate-400: #71b18f;
+    --color-slate-300: #a7d9be;
+    --color-slate-200: #d0f0de;
+    --color-slate-100: #eafaf0;
+    --editor-gutter-bg: #060b08;
+    --editor-gutter-border: #1e3629;
+  }
+
+  /* 5. Solar Warm (Comfort Sepia) */
+  html[data-theme="warm"] {
+    color-scheme: dark;
+    --color-slate-950: #151311;
+    --color-slate-900: #1c1917;
+    --color-slate-850: #23201d;
+    --color-slate-800: #292524;
+    --color-slate-750: #332e2c;
+    --color-slate-700: #44403c;
+    --color-slate-600: #57534e;
+    --color-slate-500: #78716c;
+    --color-slate-400: #a8a29e;
+    --color-slate-300: #d6d3d1;
+    --color-slate-200: #e7e5e4;
+    --color-slate-100: #fafaf9;
+    --editor-gutter-bg: #151311;
+    --editor-gutter-border: #44403c;
+  }
+
+  /* 6. Clean Studio Light Mode */
+  html[data-theme="light"] {
+    color-scheme: light;
+    --color-slate-950: #f8fafc;
+    --color-slate-900: #ffffff;
+    --color-slate-850: #f1f5f9;
+    --color-slate-800: #f1f5f9;
+    --color-slate-750: #e2e8f0;
+    --color-slate-700: #cbd5e1;
+    --color-slate-600: #94a3b8;
+    --color-slate-500: #64748b;
+    --color-slate-400: #475569;
+    --color-slate-300: #334155;
+    --color-slate-200: #1e293b;
+    --color-slate-100: #0f172a;
+    --editor-gutter-bg: #f8fafc;
+    --editor-gutter-border: #e2e8f0;
+    --editor-gutter-color: #94a3b8;
+    --scrollbar-thumb: rgba(100, 116, 139, 0.25);
+    --scrollbar-thumb-hover: rgba(100, 116, 139, 0.45);
+  }
+
+  /* ==========================================================================
+     Accent Colors: Primary Highlight Palette Mapping
+     ========================================================================== */
+
+  /* Electric Cyan (Default) */
+  html[data-accent="cyan"],
+  :root {
+    --color-cyan-950: #083344;
+    --color-cyan-900: #164e63;
+    --color-cyan-800: #155e75;
+    --color-cyan-700: #0e7490;
+    --color-cyan-600: #0891b2;
+    --color-cyan-500: #06b6d4;
+    --color-cyan-400: #22d3ee;
+    --color-cyan-300: #67e8f9;
+    --color-cyan-200: #a5f3fc;
+    --color-cyan-100: #cffafe;
+    --color-cyan-50: #ecfeff;
+  }
+
+  /* Cyber Emerald */
+  html[data-accent="emerald"] {
+    --color-cyan-950: #022c22;
+    --color-cyan-900: #064e3b;
+    --color-cyan-800: #065f46;
+    --color-cyan-700: #047857;
+    --color-cyan-600: #059669;
+    --color-cyan-500: #10b981;
+    --color-cyan-400: #34d399;
+    --color-cyan-300: #6ee7b7;
+    --color-cyan-200: #a7f3d0;
+    --color-cyan-100: #d1fae5;
+    --color-cyan-50: #ecfdf5;
+  }
+
+  /* Royal Violet */
+  html[data-accent="violet"] {
+    --color-cyan-950: #2e1065;
+    --color-cyan-900: #4c1d95;
+    --color-cyan-800: #5b21b6;
+    --color-cyan-700: #6d28d9;
+    --color-cyan-600: #7c3aed;
+    --color-cyan-500: #8b5cf6;
+    --color-cyan-400: #a78bfa;
+    --color-cyan-300: #c4b5fd;
+    --color-cyan-200: #ddd6fe;
+    --color-cyan-100: #ede9fe;
+    --color-cyan-50: #f5f3ff;
+  }
+
+  /* Neon Amber */
+  html[data-accent="amber"] {
+    --color-cyan-950: #451a03;
+    --color-cyan-900: #78350f;
+    --color-cyan-800: #92400e;
+    --color-cyan-700: #b45309;
+    --color-cyan-600: #d97706;
+    --color-cyan-500: #f59e0b;
+    --color-cyan-400: #fbbf24;
+    --color-cyan-300: #fcd34d;
+    --color-cyan-200: #fde68a;
+    --color-cyan-100: #fef3c7;
+    --color-cyan-50: #fffbeb;
+  }
+
+  /* Crimson Rose */
+  html[data-accent="rose"] {
+    --color-cyan-950: #4c0519;
+    --color-cyan-900: #881337;
+    --color-cyan-800: #9f1239;
+    --color-cyan-700: #be123c;
+    --color-cyan-600: #e11d48;
+    --color-cyan-500: #f43f5e;
+    --color-cyan-400: #fb7185;
+    --color-cyan-300: #fda4af;
+    --color-cyan-200: #fecdd3;
+    --color-cyan-100: #ffe4e6;
+    --color-cyan-50: #fff1f2;
+  }
+
+  /* Ocean Sky */
+  html[data-accent="sky"] {
+    --color-cyan-950: #082f49;
+    --color-cyan-900: #0c4a6e;
+    --color-cyan-800: #075985;
+    --color-cyan-700: #0369a1;
+    --color-cyan-600: #0284c7;
+    --color-cyan-500: #0ea5e9;
+    --color-cyan-400: #38bdf8;
+    --color-cyan-300: #7dd3fc;
+    --color-cyan-200: #bae6fd;
+    --color-cyan-100: #e0f2fe;
+    --color-cyan-50: #f0f9ff;
+  }
+
+  /* Hacker Lime */
+  html[data-accent="lime"] {
+    --color-cyan-950: #1a2e05;
+    --color-cyan-900: #365314;
+    --color-cyan-800: #3f6212;
+    --color-cyan-700: #4d7c0f;
+    --color-cyan-600: #65a30d;
+    --color-cyan-500: #84cc16;
+    --color-cyan-400: #a3e635;
+    --color-cyan-300: #bef264;
+    --color-cyan-200: #d9f99d;
+    --color-cyan-100: #ecfccb;
+    --color-cyan-50: #f7fee7;
+  }
+
+  /* Blaze Orange */
+  html[data-accent="orange"] {
+    --color-cyan-950: #431407;
+    --color-cyan-900: #7c2d12;
+    --color-cyan-800: #9a3412;
+    --color-cyan-700: #c2410c;
+    --color-cyan-600: #ea580c;
+    --color-cyan-500: #f97316;
+    --color-cyan-400: #fb923c;
+    --color-cyan-300: #fdba74;
+    --color-cyan-200: #fed7aa;
+    --color-cyan-100: #ffedd5;
+    --color-cyan-50: #fff7ed;
+  }
+
+  /* Light mode contrast adjustments for accents */
+  html[data-theme="light"][data-accent="cyan"],
+  html[data-theme="light"]:not([data-accent]) {
+    --color-cyan-950: #ecfeff;
+    --color-cyan-900: #cffafe;
+    --color-cyan-800: #a5f3fc;
+    --color-cyan-700: #67e8f9;
+    --color-cyan-600: #0891b2;
+    --color-cyan-500: #06b6d4;
+    --color-cyan-400: #0e7490;
+    --color-cyan-300: #155e75;
+    --color-cyan-200: #164e63;
+    --color-cyan-100: #083344;
+  }
+
+  html[data-theme="light"][data-accent="emerald"] {
+    --color-cyan-950: #ecfdf5;
+    --color-cyan-900: #d1fae5;
+    --color-cyan-800: #a7f3d0;
+    --color-cyan-700: #6ee7b7;
+    --color-cyan-600: #059669;
+    --color-cyan-500: #10b981;
+    --color-cyan-400: #047857;
+    --color-cyan-300: #065f46;
+    --color-cyan-200: #064e3b;
+    --color-cyan-100: #022c22;
+  }
+
+  html[data-theme="light"][data-accent="violet"] {
+    --color-cyan-950: #f5f3ff;
+    --color-cyan-900: #ede9fe;
+    --color-cyan-800: #ddd6fe;
+    --color-cyan-700: #c4b5fd;
+    --color-cyan-600: #7c3aed;
+    --color-cyan-500: #8b5cf6;
+    --color-cyan-400: #6d28d9;
+    --color-cyan-300: #5b21b6;
+    --color-cyan-200: #4c1d95;
+    --color-cyan-100: #2e1065;
+  }
+
+  html[data-theme="light"][data-accent="amber"] {
+    --color-cyan-950: #fffbeb;
+    --color-cyan-900: #fef3c7;
+    --color-cyan-800: #fde68a;
+    --color-cyan-700: #fcd34d;
+    --color-cyan-600: #d97706;
+    --color-cyan-500: #f59e0b;
+    --color-cyan-400: #b45309;
+    --color-cyan-300: #92400e;
+    --color-cyan-200: #78350f;
+    --color-cyan-100: #451a03;
+  }
+
+  html[data-theme="light"][data-accent="rose"] {
+    --color-cyan-950: #fff1f2;
+    --color-cyan-900: #ffe4e6;
+    --color-cyan-800: #fecdd3;
+    --color-cyan-700: #fda4af;
+    --color-cyan-600: #e11d48;
+    --color-cyan-500: #f43f5e;
+    --color-cyan-400: #be123c;
+    --color-cyan-300: #9f1239;
+    --color-cyan-200: #881337;
+    --color-cyan-100: #4c0519;
+  }
+
+  html[data-theme="light"][data-accent="sky"] {
+    --color-cyan-950: #f0f9ff;
+    --color-cyan-900: #e0f2fe;
+    --color-cyan-800: #bae6fd;
+    --color-cyan-700: #7dd3fc;
+    --color-cyan-600: #0284c7;
+    --color-cyan-500: #0ea5e9;
+    --color-cyan-400: #0369a1;
+    --color-cyan-300: #075985;
+    --color-cyan-200: #0c4a6e;
+    --color-cyan-100: #082f49;
+  }
+
+  html[data-theme="light"][data-accent="lime"] {
+    --color-cyan-950: #f7fee7;
+    --color-cyan-900: #ecfccb;
+    --color-cyan-800: #d9f99d;
+    --color-cyan-700: #bef264;
+    --color-cyan-600: #65a30d;
+    --color-cyan-500: #84cc16;
+    --color-cyan-400: #4d7c0f;
+    --color-cyan-300: #3f6212;
+    --color-cyan-200: #365314;
+    --color-cyan-100: #1a2e05;
+  }
+
+  html[data-theme="light"][data-accent="orange"] {
+    --color-cyan-950: #fff7ed;
+    --color-cyan-900: #ffedd5;
+    --color-cyan-800: #fed7aa;
+    --color-cyan-700: #fdba74;
+    --color-cyan-600: #ea580c;
+    --color-cyan-500: #f97316;
+    --color-cyan-400: #c2410c;
+    --color-cyan-300: #9a3412;
+    --color-cyan-200: #7c2d12;
+    --color-cyan-100: #431407;
   }
 
   html {
@@ -81,10 +453,11 @@
     padding: 0;
     overflow: hidden;
     overscroll-behavior: none;
-    background-color: #0b0f19;
-    color: #f1f5f9;
+    background-color: var(--color-slate-950, #0b0f19);
+    color: var(--color-slate-100, #f1f5f9);
     font-family: var(--font-family-sans);
     touch-action: manipulation;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   #app {
@@ -312,6 +685,70 @@
   margin: 0.5rem 0;
   border: 1px solid rgba(51, 65, 85, 0.5);
 }
+
+/* Light Mode Markdown & Code Preview */
+html[data-theme="light"] .markdown-preview {
+  color: #334155;
+}
+html[data-theme="light"] .markdown-preview h1 {
+  color: #0f172a;
+  border-bottom-color: rgba(203, 213, 225, 0.9);
+}
+html[data-theme="light"] .markdown-preview h2 {
+  color: #1e293b;
+  border-bottom-color: rgba(203, 213, 225, 0.7);
+}
+html[data-theme="light"] .markdown-preview h3,
+html[data-theme="light"] .markdown-preview h4 {
+  color: #1e293b;
+}
+html[data-theme="light"] .markdown-preview strong {
+  color: #0f172a;
+}
+html[data-theme="light"] .markdown-preview em {
+  color: #334155;
+}
+html[data-theme="light"] .markdown-preview pre {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+}
+html[data-theme="light"] .markdown-preview pre code {
+  color: #1e293b;
+}
+html[data-theme="light"] .markdown-preview code:not(pre code) {
+  background-color: #e2e8f0;
+  color: var(--color-cyan-600, #0284c7);
+  border-color: #cbd5e1;
+}
+html[data-theme="light"] .markdown-preview blockquote {
+  background-color: rgba(6, 182, 212, 0.08);
+  color: #475569;
+}
+html[data-theme="light"] .markdown-preview th {
+  background-color: #e2e8f0;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+html[data-theme="light"] .markdown-preview td {
+  color: #334155;
+  border-color: #e2e8f0;
+}
+html[data-theme="light"] .markdown-preview tr:nth-child(even) {
+  background-color: #f8fafc;
+}
+
+/* Light mode One Dark syntax highlight adaptations */
+html[data-theme="light"] .cm-hl-keyword { color: #a626a4; }
+html[data-theme="light"] .cm-hl-func { color: #4078f2; }
+html[data-theme="light"] .cm-hl-var { color: #e45649; }
+html[data-theme="light"] .cm-hl-prop { color: #e45649; }
+html[data-theme="light"] .cm-hl-type { color: #c18401; }
+html[data-theme="light"] .cm-hl-num { color: #986801; }
+html[data-theme="light"] .cm-hl-bool { color: #986801; }
+html[data-theme="light"] .cm-hl-str { color: #50a14f; }
+html[data-theme="light"] .cm-hl-comment { color: #a0a1a7; }
+html[data-theme="light"] .cm-hl-op { color: #0184bc; }
+html[data-theme="light"] .cm-hl-punct { color: #383a42; }
 
 /* Emoji Reactions & Micro-Animations */
 @keyframes reaction-pop {
