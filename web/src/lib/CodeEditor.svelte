@@ -153,7 +153,7 @@
         }),
         EditorView.theme({
           '&': { height: '100%', fontSize: '13px' },
-          '.cm-scroller': { overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
+          '.cm-scroller': { overflow: 'auto', fontFamily: "'JetBrains Mono', 'Vazirmatn', 'Vazir', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" },
           '.cm-content': { padding: '12px 0' },
           '.cm-gutters': { backgroundColor: '#090d16', borderRight: '1px solid #1e293b', color: '#64748b' }
         })
@@ -230,6 +230,7 @@
       type="text"
       bind:value={comment}
       placeholder="Snippet note or comment (e.g. cc @HyperGopher)..."
+      dir="auto"
       class="w-full bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-sans"
     />
   </div>

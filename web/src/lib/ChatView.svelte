@@ -52,6 +52,7 @@
     extractMentionContext,
     filterMentionCandidates
   } from './mentionUtils.js';
+  import { isRtlText } from './persianUtils.js';
 
   let {
     currentUser,
@@ -1216,7 +1217,7 @@
                     </span>
                   {/if}
                 </div>
-                <p class="text-[11px] text-slate-300 truncate mt-0.5 font-sans">
+                <p class="text-[11px] text-slate-300 truncate mt-0.5 font-sans" dir="auto">
                   {getReplySnippet(targetReply)}
                 </p>
               </div>
@@ -1236,8 +1237,10 @@
             {:else}
               {@const textPreview = getTextPreview(msg.body, isExpanded(msg.id))}
               {@const firstUrl = extractFirstUrl(msg.body)}
+              {@const isMsgRtl = isRtlText(msg.body)}
               <div
-                class="relative max-w-[88%] sm:max-w-xl md:max-w-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words font-sans shadow-md {isMe
+                dir={isMsgRtl ? 'rtl' : 'ltr'}
+                class="relative max-w-[88%] sm:max-w-xl md:max-w-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-xs sm:text-sm whitespace-pre-wrap break-words shadow-md {isMsgRtl ? 'font-persian leading-[1.8]' : 'font-sans leading-relaxed'} {isMe
                   ? 'bg-cyan-600 text-white rounded-br-xs'
                   : 'bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-xs'}"
               >
@@ -1438,7 +1441,7 @@
                 <!-- Rendered Markdown View -->
                 <div class="relative bg-slate-950">
                   <div class="p-3.5 sm:p-5 overflow-x-auto text-slate-200 select-text {isExpanded(msg.id) ? 'max-h-[600px] overflow-y-auto' : (codeInfo.isLong ? 'max-h-80 overflow-hidden' : '')}">
-                    <div class="markdown-preview">
+                    <div class="markdown-preview" dir="auto">
                       {@html renderMarkdown(msg.snippet.code_content)}
                     </div>
                   </div>
@@ -1629,7 +1632,7 @@
                   </span>
                 {/if}
               </div>
-              <p class="text-[10px] sm:text-[11px] text-slate-400 truncate max-w-[180px] xs:max-w-xs sm:max-w-md font-sans">
+              <p class="text-[10px] sm:text-[11px] text-slate-400 truncate max-w-[180px] xs:max-w-xs sm:max-w-md font-sans" dir="auto">
                 {getReplySnippet(replyingTo)}
               </p>
             </div>
@@ -1750,7 +1753,8 @@
           ? `Replying to ${getSenderDisplayName(replyingTo.sender_id)}...`
           : (isBroadcast ? "Type message or @name to mention (Shift+Enter for new line)..." : `Type direct message to ${selectedPeer?.display_name}...`)}
         rows="1"
-        class="w-full bg-transparent text-slate-100 placeholder-slate-500 text-sm p-2 sm:p-3 focus:outline-none resize-none font-sans min-h-[38px] max-h-32"
+        dir="auto"
+        class="w-full bg-transparent text-slate-100 placeholder-slate-500 text-sm p-2 sm:p-3 focus:outline-none resize-none font-sans min-h-[38px] max-h-32 {isRtlText(textInput) ? 'font-persian leading-[1.75]' : ''}"
       ></textarea>
 
       <!-- Input Toolbar -->

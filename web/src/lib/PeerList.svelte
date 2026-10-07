@@ -160,6 +160,7 @@
             <input
               type="text"
               bind:value={editNameValue}
+              dir="auto"
               onkeydown={(e) => {
                 if (e.key === 'Enter') saveEditing();
                 if (e.key === 'Escape') cancelEditing();
@@ -187,7 +188,7 @@
             class="flex items-center gap-1.5 group cursor-pointer text-left bg-transparent border-0 p-0"
             onclick={startEditing}
           >
-            <span class="text-sm font-semibold text-slate-100 truncate font-mono group-hover:text-cyan-400 transition-colors">
+            <span class="text-sm font-semibold text-slate-100 truncate font-mono group-hover:text-cyan-400 transition-colors" dir="auto">
               {currentUser?.display_name || 'Connecting...'}
             </span>
             <Edit3 class="w-3.5 h-3.5 text-slate-500 group-hover:text-cyan-400 transition-colors opacity-70 group-hover:opacity-100 flex-shrink-0" />
@@ -209,6 +210,7 @@
         type="text"
         bind:value={searchQuery}
         placeholder="Search peers by name or IP..."
+        dir="auto"
         class="w-full bg-slate-900/90 text-slate-200 text-xs pl-8 pr-3 py-1.5 rounded-lg border border-slate-800 placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 font-sans transition-colors"
       />
       {#if searchQuery}
@@ -291,7 +293,7 @@
             <!-- Details -->
             <div class="min-w-0">
               <div class="flex items-center gap-1.5">
-                <span class="text-xs font-medium font-mono truncate text-slate-200">
+                <span class="text-xs font-medium font-mono truncate text-slate-200" dir="auto">
                   {peer.display_name}
                 </span>
               </div>
